@@ -1,5 +1,6 @@
 import CoreLocation
 import Foundation
+import os
 
 /// Live ride orchestrator — mirrors Android `TripManager`.
 @Observable
@@ -38,10 +39,15 @@ final class TripManager {
         var stats = TripStats(tripStartTime: startTime)
         sessionState = RideSessionState(stats: stats, isActive: true, isPaused: false)
         currentTripID = repository.startNewTrip(startTime: startTime)
+        LogThrottle.reset(key: "trip.location")
+        AppLogger.trip.notice("Trip started id=\(AppLogger.uuidShort(self.currentTripID ?? UUID()), privacy: .public)")
     }
 
     func pauseTrip() {
-        guard isTracking, !isPaused else { return }
+        guard isTracking, !isPaused else {
+            AppLogger.trip.debug("Pause ignored — tracking=\(self.isTracking) paused=\(self.isPaused)")
+            return
+        }
         isPaused = true
         gForceTracker.stopTracking()
         stopDetector.reset()
@@ -51,20 +57,32 @@ final class TripManager {
         stats.speed = 0
         stats.currentGForce = 0
         sessionState = RideSessionState(stats: stats, isActive: true, isPaused: true)
+        AppLogger.trip.notice("Trip paused \(AppLogger.tripSummary(stats), privacy: .public)")
     }
 
     func resumeTrip() {
-        guard isTracking, isPaused else { return }
+        guard isTracking, isPaused else {
+            AppLogger.trip.debug("Resume ignored — tracking=\(self.isTracking) paused=\(self.isPaused)")
+            return
+        }
         isPaused = false
         stopDetector.reset()
         lastLocation = nil
         gForceTracker.startTracking(resetSession: false)
         sessionState = RideSessionState(stats: sessionState.stats, isActive: true, isPaused: false)
+        AppLogger.trip.notice("Trip resumed \(AppLogger.tripSummary(self.sessionState.stats), privacy: .public)")
     }
 
     func onLocationUpdate(_ location: CLLocation) {
         guard isTracking, !isPaused else { return }
-        guard speedFilter.isValid(location) else { return }
+        guard speedFilter.isValid(location) else {
+            if LogThrottle.shouldLog(key: "trip.invalidGPS", interval: 15) {
+                AppLogger.trip.debug(
+                    "GPS rejected accuracy=\(location.horizontalAccuracy, format: .fixed(precision: 1))m speed=\(location.speed, format: .fixed(precision: 2))m/s"
+                )
+            }
+            return
+        }
 
         let currentSpeedMps = speedFilter.processedSpeed(from: location)
         let currentSpeedKmh = currentSpeedMps * 3.6
@@ -124,10 +142,19 @@ final class TripManager {
             time: currentTime,
             runningStats: stats
         )
+
+        if LogThrottle.shouldLog(key: "trip.location", interval: 30) {
+            AppLogger.trip.info(
+                "Tick @ \(AppLogger.coordinate(location.coordinate.latitude, location.coordinate.longitude), privacy: .public) — \(AppLogger.tripSummary(stats), privacy: .public)"
+            )
+        }
     }
 
     func stopTrip() {
-        guard isTracking else { return }
+        guard isTracking else {
+            AppLogger.trip.debug("Stop ignored — not tracking")
+            return
+        }
         isTracking = false
         isPaused = false
         speedSmoother.reset()
@@ -153,10 +180,14 @@ final class TripManager {
 
         if let tripID = currentTripID {
             repository.saveTrip(tripID: tripID, finalStats: stats, endTime: endTime)
+            AppLogger.trip.notice(
+                "Trip stopped id=\(AppLogger.uuidShort(tripID), privacy: .public) — \(AppLogger.tripSummary(stats), privacy: .public)"
+            )
         }
 
         stopDetector.reset()
         currentTripID = nil
         sessionState = RideSessionState(stats: stats, isActive: false, isPaused: false)
+        LogThrottle.reset(key: "trip.location")
     }
 }

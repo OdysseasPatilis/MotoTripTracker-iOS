@@ -1,5 +1,6 @@
 import CoreLocation
 import Foundation
+import os
 
 enum WaypointAnalyzer {
     private static let stopSpeedThreshold = 0.5
@@ -9,7 +10,12 @@ enum WaypointAnalyzer {
         points: [RoutePoint],
         totalDistanceMeters: Double
     ) async {
-        guard !points.isEmpty else { return }
+        guard !points.isEmpty else {
+            AppLogger.waypoint.debug("Waypoint analysis skipped — no points")
+            return
+        }
+
+        AppLogger.waypoint.info("Analyzing waypoints for \(points.count) route points")
 
         let startPoint = points[0]
         startPoint.isWaypoint = true
@@ -93,6 +99,9 @@ enum WaypointAnalyzer {
             latitude: endPoint.latitude,
             longitude: endPoint.longitude
         )
+
+        let marked = points.filter(\.isWaypoint).count
+        AppLogger.waypoint.notice("Waypoint analysis complete — \(marked) markers on \(points.count) points")
     }
 
     private static func streetName(latitude: Double, longitude: Double) async -> String {
@@ -102,13 +111,15 @@ enum WaypointAnalyzer {
         do {
             let placemarks = try await geocoder.reverseGeocodeLocation(location)
             if let placemark = placemarks.first {
-                return placemark.thoroughfare
+                let name = placemark.thoroughfare
                     ?? placemark.subLocality
                     ?? placemark.locality
                     ?? fallback
+                AppLogger.waypoint.debug("Geocoded @ \(AppLogger.coordinate(latitude, longitude), privacy: .public) → \(name, privacy: .public)")
+                return name
             }
         } catch {
-            // Fall through to coordinates.
+            AppLogger.waypoint.debug("Geocoder failed @ \(AppLogger.coordinate(latitude, longitude), privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
         return fallback
     }

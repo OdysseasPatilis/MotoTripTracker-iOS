@@ -95,4 +95,13 @@ struct MotoTripTrackerTests {
             #expect(abs(decoded[i].lng - original[i].lng) < 0.0001)
         }
     }
+
+    @Test func osmMaxSpeedParserHandlesCommonTags() {
+        #expect(OSMMaxSpeedParser.parseKmh("50") == 50)
+        #expect(OSMMaxSpeedParser.parseKmh("50 km/h") == 50)
+        #expect(OSMMaxSpeedParser.parseKmh("GR:urban") == 50)
+        #expect(OSMMaxSpeedParser.parseKmh("GR:motorway") == 130)
+        #expect(OSMMaxSpeedParser.parseKmh("30 mph") == 48)
+        #expect(OSMMaxSpeedParser.parseKmh("signals") == nil)
+    }
 }

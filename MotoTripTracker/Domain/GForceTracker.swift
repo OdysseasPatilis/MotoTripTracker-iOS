@@ -1,5 +1,6 @@
 import CoreMotion
 import Foundation
+import os
 
 /// Tracks linear acceleration (gravity-free) and exposes G-force for the live ride loop.
 @MainActor
@@ -14,17 +15,22 @@ final class GForceTracker {
             maxSessionGForce = 0
         }
 
-        guard motionManager.isDeviceMotionAvailable else { return }
+        guard motionManager.isDeviceMotionAvailable else {
+            AppLogger.sensors.warning("Device motion unavailable — G-force disabled")
+            return
+        }
         motionManager.deviceMotionUpdateInterval = 1.0 / 50.0
         motionManager.startDeviceMotionUpdates(to: .main) { [weak self] motion, _ in
             guard let self, let motion else { return }
             self.handle(userAcceleration: motion.userAcceleration)
         }
+        AppLogger.sensors.debug("G-force tracking started (reset=\(resetSession))")
     }
 
     func stopTracking() {
         motionManager.stopDeviceMotionUpdates()
         currentGForce = 0
+        AppLogger.sensors.debug("G-force tracking stopped")
     }
 
     private func handle(userAcceleration: CMAcceleration) {

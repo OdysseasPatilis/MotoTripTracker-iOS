@@ -1,14 +1,16 @@
 import SwiftUI
 import UIKit
+import os
 
 struct RideTrackerView: View {
     @Environment(AppContainer.self) private var app
     @Environment(ThemeStore.self) private var theme
-    @AppStorage("moto.speedLimitKmh") private var speedLimitKmh: Int = 50
     @State private var clock = RideFormatters.currentClock()
     @State private var batteryLevel = BatteryReader.currentLevel()
 
     private static let selectableSpeedLimits = [30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130]
+
+    private var speedLimitKmh: Int { app.speedLimitService.effectiveLimitKmh }
 
     var body: some View {
         let session = app.tripManager.sessionState
@@ -37,6 +39,9 @@ struct RideTrackerView: View {
             app.locationService.requestAuthorization()
             app.locationService.refreshLocationEnabled()
             UIApplication.shared.isIdleTimerDisabled = true
+            if let location = app.locationService.lastLocation {
+                app.speedLimitService.refresh(for: location)
+            }
         }
         .onDisappear {
             if !session.isActive {
@@ -93,7 +98,9 @@ struct RideTrackerView: View {
                 maxSpeedKmh: max(stats.maxSpeed, 260),
                 speedLimitKmh: Double(speedLimitKmh),
                 colors: colors,
-                onCycleSpeedLimit: cycleSpeedLimit
+                isAutoLimit: app.speedLimitService.hasAutoLimit,
+                onCycleSpeedLimit: cycleSpeedLimit,
+                onClearManualOverride: clearManualSpeedLimit
             )
             GForceBar(
                 value: stats.currentGForce,
@@ -109,12 +116,21 @@ struct RideTrackerView: View {
 
     private func cycleSpeedLimit() {
         let limits = Self.selectableSpeedLimits
-        if let index = limits.firstIndex(of: speedLimitKmh) {
-            speedLimitKmh = limits[(index + 1) % limits.count]
+        let current = app.speedLimitService.manualOverrideKmh ?? app.speedLimitService.autoLimitKmh ?? 50
+        if let index = limits.firstIndex(of: current) {
+            app.speedLimitService.manualOverrideKmh = limits[(index + 1) % limits.count]
         } else {
-            speedLimitKmh = 50
+            app.speedLimitService.manualOverrideKmh = 50
         }
+        AppLogger.speedLimit.info(
+            "Manual override set → \(self.app.speedLimitService.manualOverrideKmh ?? -1) km/h (auto was \(self.app.speedLimitService.autoLimitKmh.map(String.init) ?? "none"))"
+        )
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    }
+
+    private func clearManualSpeedLimit() {
+        app.speedLimitService.clearManualOverride()
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
     }
 
     private func statsGrid(stats: TripStats, colors: AppPalette) -> some View {
@@ -255,7 +271,9 @@ struct SpeedometerArc: View {
     var maxSpeedKmh: Double = 260
     var speedLimitKmh: Double = 50
     let colors: AppPalette
+    var isAutoLimit: Bool = false
     var onCycleSpeedLimit: (() -> Void)?
+    var onClearManualOverride: (() -> Void)?
 
     private var isOverLimit: Bool { speedKmh > speedLimitKmh }
     private var speedPercent: Double { min(max(speedKmh / maxSpeedKmh, 0), 1) }
@@ -362,7 +380,8 @@ struct SpeedometerArc: View {
 
             SpeedLimitSign(
                 limitKmh: Int(speedLimitKmh),
-                isOverLimit: isOverLimit
+                isOverLimit: isOverLimit,
+                isAutoLimit: isAutoLimit
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .padding(.top, 8)
@@ -370,8 +389,11 @@ struct SpeedometerArc: View {
             .onTapGesture {
                 onCycleSpeedLimit?()
             }
+            .onLongPressGesture(minimumDuration: 0.5) {
+                onClearManualOverride?()
+            }
             .accessibilityLabel("Speed limit \(Int(speedLimitKmh)) kilometers per hour")
-            .accessibilityHint("Tap to change speed limit")
+            .accessibilityHint("Tap to set manually, long press to use road limit from map data")
             .accessibilityAddTraits(.isButton)
         }
         .frame(width: 260, height: 260)
@@ -383,6 +405,7 @@ struct SpeedometerArc: View {
 struct SpeedLimitSign: View {
     let limitKmh: Int
     let isOverLimit: Bool
+    var isAutoLimit: Bool = false
 
     private enum FlashPhase: Int {
         case red = 0
@@ -399,21 +422,31 @@ struct SpeedLimitSign: View {
             let ring = isOverLimit ? flashRing(phase) : Color(hex: 0xE30613)
             let number = isOverLimit ? flashNumber(phase) : Color.black
 
-            ZStack {
-                Circle()
-                    .fill(fill)
-                    .shadow(color: isOverLimit ? flashFill(phase).opacity(0.55) : .black.opacity(0.25), radius: isOverLimit ? 8 : 3, y: 1)
+            ZStack(alignment: .bottomTrailing) {
+                ZStack {
+                    Circle()
+                        .fill(fill)
+                        .shadow(color: isOverLimit ? flashFill(phase).opacity(0.55) : .black.opacity(0.25), radius: isOverLimit ? 8 : 3, y: 1)
 
-                Circle()
-                    .stroke(ring, lineWidth: 5.5)
+                    Circle()
+                        .stroke(ring, lineWidth: 5.5)
 
-                Text("\(limitKmh)")
-                    .font(.system(size: limitKmh >= 100 ? 18 : 22, weight: .bold, design: .rounded))
-                    .foregroundStyle(number)
-                    .minimumScaleFactor(0.7)
-                    .lineLimit(1)
+                    Text("\(limitKmh)")
+                        .font(.system(size: limitKmh >= 100 ? 18 : 22, weight: .bold, design: .rounded))
+                        .foregroundStyle(number)
+                        .minimumScaleFactor(0.7)
+                        .lineLimit(1)
+                }
+                .frame(width: 54, height: 54)
+
+                if isAutoLimit {
+                    Circle()
+                        .fill(Color(hex: 0x00E5A0))
+                        .frame(width: 8, height: 8)
+                        .overlay(Circle().stroke(Color.white, lineWidth: 1))
+                        .offset(x: 2, y: 2)
+                }
             }
-            .frame(width: 54, height: 54)
         }
     }
 

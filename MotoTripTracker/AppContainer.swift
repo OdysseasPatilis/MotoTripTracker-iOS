@@ -1,5 +1,6 @@
 import Foundation
 import SwiftData
+import os
 
 @Observable
 @MainActor
@@ -8,6 +9,7 @@ final class AppContainer {
     let repository: TripRepository
     let tripManager: TripManager
     let locationService: LocationService
+    let speedLimitService: SpeedLimitService
     let theme: ThemeStore
 
     init(inMemory: Bool = false) {
@@ -17,33 +19,49 @@ final class AppContainer {
         self.modelContainer = container
 
         let repository = TripRepository(modelContext: container.mainContext)
+        let speedLimitService = SpeedLimitService()
         self.repository = repository
         self.tripManager = TripManager(repository: repository)
         self.locationService = LocationService()
+        self.speedLimitService = speedLimitService
         self.theme = ThemeStore()
 
-        locationService.onLocationUpdate = { [weak tripManager] location in
+        locationService.onLocationUpdate = { [weak tripManager, weak speedLimitService] location in
             tripManager?.onLocationUpdate(location)
+            speedLimitService?.refresh(for: location)
         }
+
+        AppLogger.app.info("AppContainer ready (SwiftData + services wired)")
     }
 
     func startRide() {
+        AppLogger.app.notice("Start ride requested")
         locationService.requestAuthorization()
+        speedLimitService.reset()
         tripManager.startTrip()
         locationService.startUpdating()
+        if let location = locationService.lastLocation {
+            speedLimitService.refresh(for: location)
+        }
     }
 
     func pauseRide() {
+        AppLogger.app.notice("Pause ride requested")
         tripManager.pauseTrip()
         locationService.stopUpdating()
     }
 
     func resumeRide() {
+        AppLogger.app.notice("Resume ride requested")
         tripManager.resumeTrip()
         locationService.startUpdating()
+        if let location = locationService.lastLocation {
+            speedLimitService.refresh(for: location)
+        }
     }
 
     func stopRide() {
+        AppLogger.app.notice("Stop ride requested")
         tripManager.stopTrip()
         locationService.stopUpdating()
     }

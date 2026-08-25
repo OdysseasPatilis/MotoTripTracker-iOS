@@ -1,5 +1,6 @@
 import CoreLocation
 import Foundation
+import os
 
 @Observable
 @MainActor
@@ -27,6 +28,7 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
     }
 
     func requestAuthorization() {
+        AppLogger.location.info("Requesting location authorization (current=\(String(describing: self.manager.authorizationStatus)))")
         switch manager.authorizationStatus {
         case .notDetermined:
             manager.requestWhenInUseAuthorization()
@@ -42,12 +44,14 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
         refreshLocationEnabled()
         configureBackgroundUpdatesIfAllowed()
         manager.startUpdatingLocation()
+        AppLogger.location.notice("Location updates started (background=\(self.manager.allowsBackgroundLocationUpdates))")
     }
 
     func stopUpdating() {
         isCollecting = false
         manager.allowsBackgroundLocationUpdates = false
         manager.stopUpdatingLocation()
+        AppLogger.location.notice("Location updates stopped")
     }
 
     func refreshLocationEnabled() {
@@ -62,7 +66,9 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
 
     nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         Task { @MainActor in
-            self.authorizationStatus = manager.authorizationStatus
+            let status = manager.authorizationStatus
+            AppLogger.location.notice("Authorization changed → \(String(describing: status))")
+            self.authorizationStatus = status
             self.refreshLocationEnabled()
             self.configureBackgroundUpdatesIfAllowed()
             if manager.authorizationStatus == .authorizedWhenInUse {
@@ -76,11 +82,18 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
         Task { @MainActor in
             guard self.isCollecting else { return }
             self.lastLocation = location
+            if LogThrottle.shouldLog(key: "location.update", interval: 30) {
+                AppLogger.location.debug(
+                    "Fix @ \(AppLogger.coordinate(location.coordinate.latitude, location.coordinate.longitude), privacy: .public) acc=\(location.horizontalAccuracy, format: .fixed(precision: 1))m spd=\(max(0, location.speed) * 3.6, format: .fixed(precision: 0))km/h"
+                )
+            }
             self.onLocationUpdate?(location)
         }
     }
 
     nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-        // Keep collecting; transient GPS failures are expected.
+        Task { @MainActor in
+            AppLogger.location.error("Location error: \(error.localizedDescription, privacy: .public)")
+        }
     }
 }
