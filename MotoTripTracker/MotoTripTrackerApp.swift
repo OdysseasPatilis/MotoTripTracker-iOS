@@ -1,17 +1,16 @@
-//
-//  MotoTripTrackerApp.swift
-//  MotoTripTracker
-//
-//  Created by Odysseas Patilis on 25/8/26.
-//
-
+import SwiftData
 import SwiftUI
 
 @main
 struct MotoTripTrackerApp: App {
+    @State private var container = AppContainer()
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            RootNavigationView()
+                .environment(container)
+                .environment(container.theme)
+                .modelContainer(container.modelContainer)
         }
     }
 }
