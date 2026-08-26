@@ -1,0 +1,225 @@
+# MotoTripTracker (iOS)
+
+A SwiftUI motorcycle ride tracker for iPhone. Record GPS rides in the background, see live speed and road speed limits, review history with physics insights (G-force, corners), and share or export routes.
+
+The app is the iOS counterpart of the Android **MotoTripTracker** project, with feature parity for tracking, Overpass speed limits, ride moments, favorites, and GPX/share.
+
+---
+
+## Features
+
+### Live ride tracking
+- **Start / pause / resume / stop** with keep-screen-on while riding
+- **Background location** (Always authorization) so recording continues with the screen locked
+- **Live speedometer** with arc gauge and European-style speed-limit badge
+- **Dashboard metrics**: distance, moving/stopped time, avg/max speed, elevation gain, longitudinal G, lateral G, corner count
+- **GPS quality** indicator (good / fair / weak ± meters)
+- Short rides under **50 m** are discarded automatically
+
+### Speed limits (OpenStreetMap / Overpass)
+- Automatic `maxspeed` lookup near your position
+- Manual override by tapping the limit sign (30–130 km/h cycle); long-press clears override
+- **Over-limit warning**: sign flashes and a translucent full-screen flash overlays the dashboard
+- Resilient lookup: multiple Overpass mirrors, 30 m / 60 m radii, highway priority, disk grid cache with neighbor fallback
+- Manual limit preference is persisted across launches
+
+### Physics & ride quality
+- **Longitudinal G** from GPS speed deltas (clamped), resistant to handlebar vibration
+- **Corners** detected from bearing changes while moving
+- **Lateral G** estimated from turn radius (`v² / r`)
+- Speed smoothing, teleport rejection (>80 m jumps), elevation noise filtering, stop-time from near-zero speed
+
+### History & trip meta
+- Chronological ride list with **All / Favorites** tabs
+- Native **search** and date filters (today, yesterday, week, month, **custom range**)
+- Rename rides and mark favorites (including swipe actions)
+- Empty states via `ContentUnavailableView`
+
+### Summary & sharing
+- Stats overview and **Ride Moments** (top speed, longest stop, biggest climb, lean G, corners, …)
+- Map preview with encoded polyline
+- **Share card** image and **GPX** export
+- Open **full route** map with speed/elevation layers, profile chart, and waypoints
+
+### Full route map
+- MapKit route polyline colored by speed or elevation
+- Segmented Speed / Elevation layers
+- Elevation or speed profile chart
+- Waypoints (start/end, top speed, summit, stops, etc.) with reverse-geocoded labels where available
+
+### UI & theming
+- Native iOS navigation (toolbars, large titles, inset grouped lists, searchable)
+- Dark / light themes with brand mint/green/blue accents
+- Over-limit flash keeps the dashboard readable under translucent color
+
+---
+
+## Architecture
+
+The app uses a layered structure with a single composition root (`AppContainer`) that wires SwiftData, domain logic, and platform services.
+
+```mermaid
+flowchart TB
+  subgraph ui [UI - SwiftUI]
+    Root[RootNavigationView]
+    Tracker[RideTrackerView]
+    History[RideHistoryView]
+    Summary[RideSummaryView]
+    Route[FullRouteView]
+    Root --> Tracker
+    Tracker --> History
+    History --> Summary
+    Summary --> Route
+  end
+
+  subgraph app [Composition]
+    Container[AppContainer]
+    Theme[ThemeStore]
+  end
+
+  subgraph domain [Domain]
+    TripMgr[TripManager]
+    Filters[SpeedFilter StopDetector SpeedSmoother ElevationSmoother]
+    Physics[GForceTracker CornerDetector]
+    Moments[RideMomentsCalculator]
+  end
+
+  subgraph services [Services]
+    Loc[LocationService]
+    SpeedLim[SpeedLimitService]
+    Cache[SpeedLimitCacheStore]
+  end
+
+  subgraph data [Data]
+    Repo[TripRepository]
+    Models[Trip RoutePoint - SwiftData]
+    Waypoints[WaypointAnalyzer]
+    GPX[GpxExporter]
+  end
+
+  Tracker --> Container
+  Container --> TripMgr
+  Container --> Loc
+  Container --> SpeedLim
+  Container --> Repo
+  Container --> Theme
+  Loc -->|CLLocation| TripMgr
+  Loc -->|CLLocation| SpeedLim
+  TripMgr --> Filters
+  TripMgr --> Physics
+  TripMgr --> Repo
+  SpeedLim --> Cache
+  Repo --> Models
+  Repo --> Waypoints
+  Summary --> Moments
+  Summary --> GPX
+```
+
+### Layer responsibilities
+
+| Layer | Role | Key types |
+| --- | --- | --- |
+| **UI** | Screens, navigation, theme | `RootNavigationView`, tracker / history / summary / route views, `ThemeStore` |
+| **App** | DI / composition root | `AppContainer`, `MotoTripTrackerApp` |
+| **Domain** | Ride loop, filtering, physics, moments | `TripManager`, `TripStats`, detectors / smoothers, `RideMomentsCalculator` |
+| **Services** | Platform & network | `LocationService`, `SpeedLimitService`, `OSMMaxSpeedParser` |
+| **Data** | Persistence & export | `TripRepository`, SwiftData models, `WaypointAnalyzer`, `GpxExporter`, `PolylineEncoder` |
+| **Utilities** | Cross-cutting helpers | `AppLogger`, `RideFormatters`, `RideShareHelper` |
+
+### Ride session flow
+
+1. User taps **Start Ride** → `AppContainer.startRide()`
+2. `LocationService` begins GPS updates (background allowed when Always is granted)
+3. Each fix is validated (`SpeedFilter`), then fed to `TripManager` and `SpeedLimitService`
+4. `TripManager` updates `TripStats`, persists route points via `TripRepository`, and runs corner / G / elevation / stop logic
+5. **Stop** finalizes the trip (or deletes it if under 50 m), encodes a polyline, and runs waypoint analysis asynchronously
+
+### Persistence (SwiftData)
+
+- **`Trip`**: aggregate stats, title, favorite, polyline, lateral G, corner count
+- **`RoutePoint`**: lat/lon/altitude/speed/timestamp + optional waypoint metadata  
+  Cascade-deleted with the parent trip
+
+### Speed limit pipeline
+
+1. Throttle by distance (~35 m) and time (~15 s)
+2. Check **grid cache** (and neighboring cells offline)
+3. Query Overpass mirrors with expanding radius
+4. Parse OSM tags (`OSMMaxSpeedParser`, including country defaults like `GR:urban`)
+5. Prefer higher-priority highway types when multiple ways match
+6. Apply auto limit unless a manual override is set
+
+### Logging
+
+Structured `os.Logger` categories (`App`, `Location`, `Trip`, `Persistence`, `SpeedLimit`, `Waypoint`, `Sensors`) with `LogThrottle` to avoid flooding from 1 Hz GPS.
+
+---
+
+## Project layout
+
+```
+MotoTripTracker/
+├── MotoTripTrackerApp.swift      # @main entry
+├── AppContainer.swift            # Composition / DI
+├── Domain/                       # Trip loop & algorithms
+├── Data/                         # SwiftData models, repository, waypoints
+├── Services/                     # Location, Overpass speed limits
+├── UI/
+│   ├── Navigation/
+│   ├── Tracker/
+│   ├── History/
+│   ├── Summary/
+│   ├── Route/
+│   └── Theme/
+└── Utilities/                    # Logging, GPX, share, formatters, polyline
+MotoTripTrackerTests/             # Unit tests (filters, detectors, parsers, …)
+MotoTripTrackerUITests/           # UI test targets
+```
+
+---
+
+## Tech stack
+
+| Area | Choice |
+| --- | --- |
+| UI | SwiftUI, NavigationStack, MapKit |
+| Persistence | SwiftData |
+| Location | Core Location (background mode: `location`) |
+| Speed limits | Overpass API (OpenStreetMap) — no Google Maps API key |
+| Maps | Apple MapKit (system; no Maps API key required for native display) |
+| Concurrency | `@MainActor`, `Task` / `async` for network & waypoint work |
+| Observation | `@Observable` for session, theme, speed-limit state |
+
+**Bundle ID:** `com.odys.MotoTripTracker`  
+**Deployment:** iOS (see Xcode project for current deployment target)
+
+---
+
+## Permissions
+
+- **When In Use** location — record rides and show live speed
+- **Always** location — continue recording in background / screen locked  
+  Usage strings are set via `INFOPLIST_KEY_NSLocation*` in the Xcode project.
+
+---
+
+## Building & testing
+
+1. Open `MotoTripTracker.xcodeproj` in Xcode
+2. Select an iPhone simulator or device
+3. Build & run (`⌘R`)
+4. Unit tests: Product → Test, or:
+
+```bash
+xcodebuild -scheme MotoTripTracker \
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  -only-testing:MotoTripTrackerTests test
+```
+
+On a real device, grant **Always** location for background tracking, and ride outdoors for meaningful GPS / Overpass results.
+
+---
+
+## Related project
+
+Feature design and domain behavior closely follow the Android **MotoTripTracker** app (Kotlin / Compose / ObjectBox). This iOS port uses SwiftUI, SwiftData, and MapKit instead of Compose, ObjectBox, and Google Maps.
