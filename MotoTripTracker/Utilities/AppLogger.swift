@@ -19,7 +19,7 @@ enum AppLogger {
 
     static func tripSummary(_ stats: TripStats) -> String {
         String(
-            format: "dist=%.2fkm speed=%.0f avg=%.0f max=%.0f moving=%ds stopped=%ds elev=%.0fm maxG=%.2f",
+            format: "dist=%.2fkm speed=%.0f avg=%.0f max=%.0f moving=%ds stopped=%ds elev=%.0fm maxG=%.2f latG=%.2f corners=%d gps=%@",
             stats.distanceKm,
             stats.speed,
             stats.avgSpeed,
@@ -27,7 +27,10 @@ enum AppLogger {
             stats.movingTime,
             stats.stoppedTime,
             stats.totalElevationGain,
-            stats.maxGForce
+            stats.maxGForce,
+            stats.maxLateralGForce,
+            stats.cornerCount,
+            stats.gpsQuality.rawValue
         )
     }
 

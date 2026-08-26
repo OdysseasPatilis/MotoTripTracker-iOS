@@ -60,9 +60,12 @@ final class AppContainer {
         }
     }
 
-    func stopRide() {
+    /// Returns `false` when the ride was discarded for being shorter than the minimum distance.
+    @discardableResult
+    func stopRide() -> Bool {
         AppLogger.app.notice("Stop ride requested")
-        tripManager.stopTrip()
+        let saved = tripManager.stopTrip()
         locationService.stopUpdating()
+        return saved
     }
 }

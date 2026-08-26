@@ -7,6 +7,7 @@ struct RideTrackerView: View {
     @Environment(ThemeStore.self) private var theme
     @State private var clock = RideFormatters.currentClock()
     @State private var batteryLevel = BatteryReader.currentLevel()
+    @State private var discardBanner: String?
 
     private static let selectableSpeedLimits = [30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130]
 
@@ -40,6 +41,18 @@ struct RideTrackerView: View {
             OverLimitScreenFlash(isActive: isOverLimit)
                 .allowsHitTesting(false)
                 .ignoresSafeArea()
+        }
+        .overlay(alignment: .top) {
+            if let banner = discardBanner {
+                Text(banner)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(colors.textPrimary)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(colors.bgPanel.opacity(0.95), in: Capsule())
+                    .padding(.top, 8)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
         }
         .onAppear {
             app.locationService.requestAuthorization()
@@ -99,6 +112,9 @@ struct RideTrackerView: View {
 
     private func speedometerCard(stats: TripStats, colors: AppPalette) -> some View {
         VStack(spacing: 16) {
+            if stats.gpsQuality != .unknown || stats.gpsAccuracyMeters != nil {
+                gpsStatusRow(stats: stats, colors: colors)
+            }
             SpeedometerArc(
                 speedKmh: stats.speed,
                 maxSpeedKmh: max(stats.maxSpeed, 260),
@@ -118,6 +134,39 @@ struct RideTrackerView: View {
         .padding(.horizontal, 24)
         .frame(maxWidth: .infinity)
         .background(colors.bgPanel, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+    }
+
+    private func gpsStatusRow(stats: TripStats, colors: AppPalette) -> some View {
+        let tint: Color = {
+            switch stats.gpsQuality {
+            case .good: colors.neonGreen
+            case .fair: colors.routeAmber
+            case .poor: colors.neonRed
+            case .unknown: colors.textMuted
+            }
+        }()
+        let accuracyText: String = {
+            if let meters = stats.gpsAccuracyMeters {
+                return String(format: "±%.0fm", meters)
+            }
+            return ""
+        }()
+
+        return HStack(spacing: 8) {
+            Circle()
+                .fill(tint)
+                .frame(width: 8, height: 8)
+            Text(stats.gpsQuality.label)
+                .font(.system(size: 11, weight: .bold))
+                .tracking(1)
+                .foregroundStyle(tint)
+            if !accuracyText.isEmpty {
+                Text(accuracyText)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(colors.textMuted)
+            }
+            Spacer()
+        }
     }
 
     private func cycleSpeedLimit() {
@@ -172,6 +221,20 @@ struct RideTrackerView: View {
                     colors: colors
                 )
             }
+            HStack(spacing: 12) {
+                StatCard(
+                    label: "LATERAL G",
+                    value: String(format: "%.2f G", stats.currentLateralGForce),
+                    valueColor: colors.neonBlue,
+                    colors: colors
+                )
+                StatCard(
+                    label: "CORNERS",
+                    value: "\(stats.cornerCount)",
+                    valueColor: colors.neonGreen,
+                    colors: colors
+                )
+            }
         }
     }
 
@@ -202,8 +265,17 @@ struct RideTrackerView: View {
                 }
 
                 Button {
-                    app.stopRide()
+                    let saved = app.stopRide()
                     UIApplication.shared.isIdleTimerDisabled = false
+                    if !saved {
+                        withAnimation {
+                            discardBanner = "Ride too short — not saved"
+                        }
+                        Task {
+                            try? await Task.sleep(for: .seconds(2.5))
+                            withAnimation { discardBanner = nil }
+                        }
+                    }
                 } label: {
                     Text("STOP")
                         .font(.system(size: 14, weight: .bold))

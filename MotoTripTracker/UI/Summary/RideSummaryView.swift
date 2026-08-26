@@ -9,7 +9,10 @@ struct RideSummaryView: View {
 
     let tripID: UUID
     @State private var trip: Trip?
+    @State private var moments: RideMoments = RideMoments(moments: [])
     @State private var showDeleteConfirm = false
+    @State private var showRename = false
+    @State private var renameText = ""
     @State private var mapPosition: MapCameraPosition = .automatic
 
     var body: some View {
@@ -20,13 +23,15 @@ struct RideSummaryView: View {
 
             if let trip {
                 VStack(spacing: 0) {
-                    summaryTopBar(colors: colors)
+                    summaryTopBar(trip, colors: colors)
 
                     ScrollView {
                         VStack(spacing: 10) {
                             heroDate(trip, colors: colors)
                             mapPreviewCard(trip, colors: colors)
+                            shareActions(trip, colors: colors)
                             statsGrid(trip, colors: colors)
+                            momentsSection(colors: colors)
                         }
                         .padding(.horizontal, 20)
                         .padding(.top, 4)
@@ -39,9 +44,7 @@ struct RideSummaryView: View {
             }
         }
         .toolbar(.hidden, for: .navigationBar)
-        .onAppear {
-            trip = app.repository.fetchTrip(id: tripID)
-        }
+        .onAppear { reload() }
         .confirmationDialog("Delete this ride?", isPresented: $showDeleteConfirm, titleVisibility: .visible) {
             Button("Delete", role: .destructive) {
                 app.repository.deleteTrip(id: tripID)
@@ -49,9 +52,26 @@ struct RideSummaryView: View {
             }
             Button("Cancel", role: .cancel) {}
         }
+        .alert("Rename ride", isPresented: $showRename) {
+            TextField("Title", text: $renameText)
+            Button("Save") {
+                app.repository.renameTrip(id: tripID, title: renameText)
+                reload()
+            }
+            Button("Cancel", role: .cancel) {}
+        }
     }
 
-    private func summaryTopBar(colors: AppPalette) -> some View {
+    private func reload() {
+        trip = app.repository.fetchTrip(id: tripID)
+        if let trip {
+            let points = app.repository.routePoints(for: tripID)
+            moments = RideMomentsCalculator.calculate(trip: trip, points: points)
+            renameText = trip.title ?? ""
+        }
+    }
+
+    private func summaryTopBar(_ trip: Trip, colors: AppPalette) -> some View {
         HStack {
             Button { dismiss() } label: {
                 Image(systemName: "arrow.left")
@@ -68,6 +88,25 @@ struct RideSummaryView: View {
                 .foregroundStyle(colors.textPrimary)
 
             Spacer()
+
+            Button {
+                app.repository.toggleFavorite(id: tripID)
+                reload()
+            } label: {
+                Image(systemName: trip.isFavorite ? "star.fill" : "star")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(trip.isFavorite ? colors.routeAmber : colors.textMuted)
+                    .frame(width: 36, height: 36)
+                    .background(colors.bgCard, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            }
+
+            Button { showRename = true } label: {
+                Image(systemName: "pencil")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(colors.textMuted)
+                    .frame(width: 36, height: 36)
+                    .background(colors.bgCard, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            }
 
             Button { showDeleteConfirm = true } label: {
                 Image(systemName: "trash")
@@ -87,13 +126,44 @@ struct RideSummaryView: View {
                 .font(.system(size: 10, weight: .regular))
                 .tracking(1.5)
                 .foregroundStyle(colors.heroLabel)
-            Text(RideFormatters.timestampToDate(trip.startTime))
+            Text(trip.displayTitle)
                 .font(.system(size: 22, weight: .semibold))
                 .foregroundStyle(colors.mint)
+                .multilineTextAlignment(.center)
+            Text(RideFormatters.timestampToDate(trip.startTime))
+                .font(.system(size: 13))
+                .foregroundStyle(colors.mint.opacity(0.8))
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 18)
         .background(colors.heroGradient, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private func shareActions(_ trip: Trip, colors: AppPalette) -> some View {
+        HStack(spacing: 10) {
+            Button {
+                RideShareHelper.shareCardImage(trip: trip, moments: moments)
+            } label: {
+                Label("Share card", systemImage: "square.and.arrow.up")
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 44)
+                    .foregroundStyle(colors.textPrimary)
+                    .background(colors.bgCard, in: Capsule())
+            }
+
+            Button {
+                let points = app.repository.routePoints(for: trip.id)
+                RideShareHelper.shareGPX(trip: trip, points: points)
+            } label: {
+                Label("GPX", systemImage: "point.topleft.down.to.point.bottomright.curvepath")
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 44)
+                    .foregroundStyle(colors.textPrimary)
+                    .background(colors.bgCard, in: Capsule())
+            }
+        }
     }
 
     @ViewBuilder
@@ -214,6 +284,54 @@ struct RideSummaryView: View {
                     colors: colors
                 )
             }
+            HStack(spacing: 12) {
+                SummaryStatCard(
+                    label: "LATERAL G",
+                    value: String(format: "%.2f", trip.maxLateralGForce),
+                    unit: "G-force",
+                    valueColor: colors.neonBlue,
+                    colors: colors
+                )
+                SummaryStatCard(
+                    label: "CORNERS",
+                    value: "\(trip.cornerCount)",
+                    unit: "turns",
+                    valueColor: colors.neonGreen,
+                    colors: colors
+                )
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func momentsSection(colors: AppPalette) -> some View {
+        if !moments.moments.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("RIDE MOMENTS")
+                    .font(.system(size: 11, weight: .medium))
+                    .tracking(2)
+                    .foregroundStyle(colors.textMuted)
+
+                ForEach(moments.moments) { moment in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(moment.title)
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(colors.textPrimary)
+                            Text(moment.detail)
+                                .font(.system(size: 12))
+                                .foregroundStyle(colors.textMuted)
+                        }
+                        Spacer()
+                        Text(moment.value)
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(colors.neonGreen)
+                    }
+                    .padding(14)
+                    .background(colors.bgCard, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
+            }
+            .padding(.top, 8)
         }
     }
 

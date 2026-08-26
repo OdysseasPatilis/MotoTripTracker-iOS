@@ -119,4 +119,55 @@ struct MotoTripTrackerTests {
         #expect(OSMMaxSpeedParser.parseKmh("30 mph") == 48)
         #expect(OSMMaxSpeedParser.parseKmh("signals") == nil)
     }
+
+    @Test func speedSmootherAveragesWindow() {
+        let smoother = SpeedSmoother(windowSize: 3)
+        _ = smoother.smoothedSpeedKmh(fromSpeedMps: 10 / 3.6)
+        _ = smoother.smoothedSpeedKmh(fromSpeedMps: 20 / 3.6)
+        let smoothed = smoother.smoothedSpeedKmh(fromSpeedMps: 30 / 3.6)
+        #expect(smoothed == 20)
+    }
+
+    @Test func cornerDetectorCountsSignificantTurns() {
+        let detector = CornerDetector()
+        let base = CLLocationCoordinate2D(latitude: 37.98, longitude: 23.72)
+        func location(course: Double, latDelta: Double, lonDelta: Double) -> CLLocation {
+            CLLocation(
+                coordinate: CLLocationCoordinate2D(
+                    latitude: base.latitude + latDelta,
+                    longitude: base.longitude + lonDelta
+                ),
+                altitude: 100,
+                horizontalAccuracy: 5,
+                verticalAccuracy: 5,
+                course: course,
+                speed: 15,
+                timestamp: Date()
+            )
+        }
+
+        _ = detector.onLocation(location(course: 0, latDelta: 0, lonDelta: 0), speedMps: 15)
+        _ = detector.onLocation(location(course: 20, latDelta: 0.0003, lonDelta: 0.0001), speedMps: 15)
+        _ = detector.onLocation(location(course: 45, latDelta: 0.0006, lonDelta: 0.0003), speedMps: 15)
+        #expect(detector.cornerCount >= 1)
+    }
+
+    @Test func gpsQualityBucketsAccuracy() {
+        #expect(GpsQuality.fromAccuracyMeters(5) == .good)
+        #expect(GpsQuality.fromAccuracyMeters(12) == .fair)
+        #expect(GpsQuality.fromAccuracyMeters(20) == .poor)
+        #expect(GpsQuality.fromAccuracyMeters(nil) == .unknown)
+    }
+
+    @Test func gpxExporterContainsTrackPoints() {
+        let trip = Trip(startTime: 1_700_000_000, title: "Test Ride")
+        let points = [
+            RoutePoint(latitude: 37.98, longitude: 23.72, altitude: 100, speedMps: 10, timestamp: 1_700_000_000),
+            RoutePoint(latitude: 37.981, longitude: 23.721, altitude: 105, speedMps: 12, timestamp: 1_700_000_010)
+        ]
+        let gpx = GpxExporter.build(trip: trip, points: points)
+        #expect(gpx.contains("<trkpt"))
+        #expect(gpx.contains("Test Ride"))
+        #expect(gpx.contains("37.98"))
+    }
 }

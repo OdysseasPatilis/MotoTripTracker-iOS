@@ -48,13 +48,7 @@ final class TripRepository {
         point.trip = trip
         modelContext.insert(point)
 
-        trip.distanceMeters = runningStats.distanceMeters
-        trip.movingTime = runningStats.movingTime
-        trip.stoppedTime = runningStats.stoppedTime
-        trip.maxSpeed = runningStats.maxSpeed
-        trip.maxGForce = runningStats.maxGForce
-        trip.elevationGain = runningStats.totalElevationGain
-        trip.avgSpeed = runningStats.avgSpeed
+        applyRunningStats(runningStats, to: trip)
 
         do {
             try modelContext.save()
@@ -70,13 +64,7 @@ final class TripRepository {
         }
 
         trip.endTime = endTime
-        trip.movingTime = finalStats.movingTime
-        trip.stoppedTime = finalStats.stoppedTime
-        trip.avgSpeed = finalStats.avgSpeed
-        trip.distanceMeters = finalStats.distanceMeters
-        trip.maxSpeed = finalStats.maxSpeed
-        trip.maxGForce = finalStats.maxGForce
-        trip.elevationGain = finalStats.totalElevationGain
+        applyRunningStats(finalStats, to: trip)
 
         let points = routePoints(for: tripID)
         AppLogger.persistence.notice(
@@ -103,6 +91,19 @@ final class TripRepository {
                 AppLogger.persistence.error("Failed to save finalized trip: \(error.localizedDescription, privacy: .public)")
             }
         }
+    }
+
+    func renameTrip(id: UUID, title: String?) {
+        guard let trip = fetchTrip(id: id) else { return }
+        let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        trip.title = (trimmed?.isEmpty == false) ? trimmed : nil
+        saveContext(action: "rename")
+    }
+
+    func toggleFavorite(id: UUID) {
+        guard let trip = fetchTrip(id: id) else { return }
+        trip.isFavorite.toggle()
+        saveContext(action: "favorite")
     }
 
     func allTrips() -> [Trip] {
@@ -142,5 +143,26 @@ final class TripRepository {
 
     func waypoints(for tripID: UUID) -> [RoutePoint] {
         routePoints(for: tripID).filter(\.isWaypoint)
+    }
+
+    private func applyRunningStats(_ stats: TripStats, to trip: Trip) {
+        trip.distanceMeters = stats.distanceMeters
+        trip.movingTime = stats.movingTime
+        trip.stoppedTime = stats.stoppedTime
+        trip.maxSpeed = stats.maxSpeed
+        trip.maxGForce = stats.maxGForce
+        trip.elevationGain = stats.totalElevationGain
+        trip.avgSpeed = stats.avgSpeed
+        trip.maxLateralGForce = stats.maxLateralGForce
+        trip.cornerCount = stats.cornerCount
+    }
+
+    private func saveContext(action: String) {
+        do {
+            try modelContext.save()
+            AppLogger.persistence.debug("Trip \(action) saved")
+        } catch {
+            AppLogger.persistence.error("Failed to \(action): \(error.localizedDescription, privacy: .public)")
+        }
     }
 }
