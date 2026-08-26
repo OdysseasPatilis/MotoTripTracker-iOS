@@ -1,12 +1,10 @@
 import Foundation
 
-/// Classifies gaps between GPS pings as moving vs stopped time.
+/// Classifies elapsed time between GPS pings as moving vs stopped using speed.
 final class StopDetector: @unchecked Sendable {
     private var lastUpdateTime: TimeInterval = 0
 
-    /// Gaps ≤ 4 s count as continuous moving.
-    private let maxMovingGapSeconds: TimeInterval = 4
-    /// Gaps > 5 min are ignored (tunnel / sleep).
+    /// Gaps > 5 min are ignored (tunnel / sleep / background kill).
     private let maxValidDeltaSeconds: TimeInterval = 300
 
     func reset() {
@@ -14,10 +12,12 @@ final class StopDetector: @unchecked Sendable {
     }
 
     /// - Parameters:
-    ///   - currentTime: location timestamp (seconds since reference date / epoch)
+    ///   - currentTime: location timestamp (seconds since epoch)
+    ///   - isMoving: `true` when filtered speed indicates real motion
     ///   - onTimeUpdated: `(movingMillis, stoppedMillis)`
     func updateTimes(
         currentTime: TimeInterval,
+        isMoving: Bool,
         onTimeUpdated: (_ movingMillis: Int64, _ stoppedMillis: Int64) -> Void
     ) {
         if lastUpdateTime == 0 {
@@ -33,12 +33,10 @@ final class StopDetector: @unchecked Sendable {
             return
         }
 
-        if timeDelta <= maxMovingGapSeconds {
+        if isMoving {
             onTimeUpdated(timeDeltaMs, 0)
         } else {
-            let movingPortion: Int64 = 2000
-            let stoppedPortion = timeDeltaMs - movingPortion
-            onTimeUpdated(movingPortion, max(0, stoppedPortion))
+            onTimeUpdated(0, timeDeltaMs)
         }
     }
 }

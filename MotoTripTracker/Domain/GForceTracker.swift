@@ -1,49 +1,67 @@
-import CoreMotion
 import Foundation
 import os
 
-/// Tracks linear acceleration (gravity-free) and exposes G-force for the live ride loop.
+/// Estimates longitudinal G-force from GPS speed changes.
+/// Phone accelerometers on a motorcycle mount are dominated by engine/road vibration
+/// (often multi-G spikes), so speed deltas are a more trustworthy riding metric.
 @MainActor
 final class GForceTracker {
-    private let motionManager = CMMotionManager()
     private(set) var currentGForce: Double = 0
     private(set) var maxSessionGForce: Double = 0
+
+    private var lastSpeedMps: Double?
+    private var lastTimestamp: TimeInterval?
+
+    /// Street-riding peak clamp — beyond this is almost always GPS noise.
+    private let maxPlausibleG: Double = 1.2
+    /// Ignore tiny deltas that look like GPS jitter.
+    private let minDeltaSeconds: TimeInterval = 0.4
+    private let maxDeltaSeconds: TimeInterval = 4.0
 
     func startTracking(resetSession: Bool = true) {
         if resetSession {
             currentGForce = 0
             maxSessionGForce = 0
         }
-
-        guard motionManager.isDeviceMotionAvailable else {
-            AppLogger.sensors.warning("Device motion unavailable — G-force disabled")
-            return
-        }
-        motionManager.deviceMotionUpdateInterval = 1.0 / 50.0
-        motionManager.startDeviceMotionUpdates(to: .main) { [weak self] motion, _ in
-            guard let self, let motion else { return }
-            self.handle(userAcceleration: motion.userAcceleration)
-        }
-        AppLogger.sensors.debug("G-force tracking started (reset=\(resetSession))")
+        lastSpeedMps = nil
+        lastTimestamp = nil
+        AppLogger.sensors.debug("G-force tracking started (GPS-derived, reset=\(resetSession))")
     }
 
     func stopTracking() {
-        motionManager.stopDeviceMotionUpdates()
         currentGForce = 0
+        lastSpeedMps = nil
+        lastTimestamp = nil
         AppLogger.sensors.debug("G-force tracking stopped")
     }
 
-    private func handle(userAcceleration: CMAcceleration) {
-        let x = userAcceleration.x
-        let y = userAcceleration.y
-        let z = userAcceleration.z
-        let accelerationMps2 = sqrt(x * x + y * y + z * z) * 9.81
-        let rawG = accelerationMps2 / 9.81
+    /// Feed each accepted GPS sample. Uses |Δv / Δt| / g, smoothed for the UI.
+    func update(speedMps: Double, timestamp: TimeInterval) {
+        defer {
+            lastSpeedMps = speedMps
+            lastTimestamp = timestamp
+        }
 
-        let meaningfulG = rawG > 0.05 ? rawG : 0
-        currentGForce = (currentGForce * 0.8) + (meaningfulG * 0.2)
-        if meaningfulG > maxSessionGForce {
-            maxSessionGForce = meaningfulG
+        guard let prevSpeed = lastSpeedMps, let prevTime = lastTimestamp else {
+            currentGForce = 0
+            return
+        }
+
+        let dt = timestamp - prevTime
+        guard dt >= minDeltaSeconds, dt <= maxDeltaSeconds else {
+            currentGForce *= 0.85
+            return
+        }
+
+        let accelG = abs(speedMps - prevSpeed) / dt / 9.81
+        let clamped = min(accelG, maxPlausibleG)
+        // Ignore micro-jitter under ~0.03 G
+        let meaningful = clamped > 0.03 ? clamped : 0
+
+        currentGForce = (currentGForce * 0.7) + (meaningful * 0.3)
+        // Track max from the smoothed signal so one GPS blip cannot inflate the ride peak.
+        if currentGForce > maxSessionGForce {
+            maxSessionGForce = currentGForce
         }
     }
 }

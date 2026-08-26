@@ -41,13 +41,13 @@ struct MotoTripTrackerTests {
         #expect(filter.processedSpeed(from: drifting) == 0)
     }
 
-    @Test func stopDetectorCountsShortGapsAsMoving() {
+    @Test func stopDetectorCountsMovingWhenSpeedAboveThreshold() {
         let detector = StopDetector()
         var moving: Int64 = 0
         var stopped: Int64 = 0
         let base: TimeInterval = 1_000_000
-        detector.updateTimes(currentTime: base) { _, _ in }
-        detector.updateTimes(currentTime: base + 2) { m, s in
+        detector.updateTimes(currentTime: base, isMoving: true) { _, _ in }
+        detector.updateTimes(currentTime: base + 2, isMoving: true) { m, s in
             moving += m
             stopped += s
         }
@@ -55,18 +55,33 @@ struct MotoTripTrackerTests {
         #expect(stopped == 0)
     }
 
-    @Test func stopDetectorSplitsLongerGaps() {
+    @Test func stopDetectorCountsStoppedWhenNotMoving() {
         let detector = StopDetector()
         var moving: Int64 = 0
         var stopped: Int64 = 0
         let base: TimeInterval = 1_000_000
-        detector.updateTimes(currentTime: base) { _, _ in }
-        detector.updateTimes(currentTime: base + 10) { m, s in
+        detector.updateTimes(currentTime: base, isMoving: true) { _, _ in }
+        detector.updateTimes(currentTime: base + 5, isMoving: false) { m, s in
             moving += m
             stopped += s
         }
-        #expect(moving == 2000)
-        #expect(stopped == 8000)
+        #expect(moving == 0)
+        #expect(stopped == 5000)
+    }
+
+    @Test func gForceTrackerUsesSpeedDeltasAndClampsPeaks() async {
+        let tracker = await MainActor.run { GForceTracker() }
+        await MainActor.run {
+            tracker.startTracking(resetSession: true)
+            tracker.update(speedMps: 10, timestamp: 1_000)
+            tracker.update(speedMps: 20, timestamp: 1_001) // 1.02 g raw
+            tracker.update(speedMps: 50, timestamp: 1_002) // huge spike → clamped
+        }
+        let maxG = await MainActor.run { tracker.maxSessionGForce }
+        let current = await MainActor.run { tracker.currentGForce }
+        #expect(maxG <= 1.2)
+        #expect(current <= 1.2)
+        #expect(maxG > 0)
     }
 
     @Test func elevationSmootherIgnoresNoise() {

@@ -17,6 +17,8 @@ struct RideTrackerView: View {
         let stats = session.stats
         let colors = theme.palette
 
+        let isOverLimit = session.isActive && !session.isPaused && stats.speed > Double(speedLimitKmh)
+
         ZStack {
             colors.bgDeep.ignoresSafeArea()
 
@@ -34,6 +36,10 @@ struct RideTrackerView: View {
 
                 bottomBar(session: session, colors: colors)
             }
+
+            OverLimitScreenFlash(isActive: isOverLimit)
+                .allowsHitTesting(false)
+                .ignoresSafeArea()
         }
         .onAppear {
             app.locationService.requestAuthorization()
@@ -401,32 +407,71 @@ struct SpeedometerArc: View {
     }
 }
 
+enum OverLimitFlashPhase: Int {
+    case red = 0
+    case blue = 1
+    case white = 2
+
+    static func current(at date: Date) -> OverLimitFlashPhase {
+        OverLimitFlashPhase(rawValue: Int(date.timeIntervalSinceReferenceDate / 0.16) % 3) ?? .red
+    }
+
+    var fill: Color {
+        switch self {
+        case .red: Color(hex: 0xE30613)
+        case .blue: Color(hex: 0x0055FF)
+        case .white: .white
+        }
+    }
+
+    var ring: Color {
+        switch self {
+        case .red, .blue: .white
+        case .white: Color(hex: 0xE30613)
+        }
+    }
+
+    var number: Color {
+        switch self {
+        case .red, .blue: .white
+        case .white: .black
+        }
+    }
+}
+
+/// Full-screen translucent flash matching the speed-limit sign palette.
+struct OverLimitScreenFlash: View {
+    let isActive: Bool
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 0.16, paused: !isActive)) { context in
+            if isActive {
+                OverLimitFlashPhase.current(at: context.date).fill
+                    .opacity(0.22)
+                    .animation(.easeInOut(duration: 0.12), value: OverLimitFlashPhase.current(at: context.date).rawValue)
+            }
+        }
+    }
+}
+
 /// European-style circular speed-limit badge. Flashes red / blue / white when over limit.
 struct SpeedLimitSign: View {
     let limitKmh: Int
     let isOverLimit: Bool
     var isAutoLimit: Bool = false
 
-    private enum FlashPhase: Int {
-        case red = 0
-        case blue = 1
-        case white = 2
-    }
-
     var body: some View {
         TimelineView(.animation(minimumInterval: 0.16, paused: !isOverLimit)) { context in
-            let phase = FlashPhase(
-                rawValue: Int(context.date.timeIntervalSinceReferenceDate / 0.16) % 3
-            ) ?? .red
-            let fill = isOverLimit ? flashFill(phase) : Color.white
-            let ring = isOverLimit ? flashRing(phase) : Color(hex: 0xE30613)
-            let number = isOverLimit ? flashNumber(phase) : Color.black
+            let phase = OverLimitFlashPhase.current(at: context.date)
+            let fill = isOverLimit ? phase.fill : Color.white
+            let ring = isOverLimit ? phase.ring : Color(hex: 0xE30613)
+            let number = isOverLimit ? phase.number : Color.black
 
             ZStack(alignment: .bottomTrailing) {
                 ZStack {
                     Circle()
                         .fill(fill)
-                        .shadow(color: isOverLimit ? flashFill(phase).opacity(0.55) : .black.opacity(0.25), radius: isOverLimit ? 8 : 3, y: 1)
+                        .shadow(color: isOverLimit ? phase.fill.opacity(0.55) : .black.opacity(0.25), radius: isOverLimit ? 8 : 3, y: 1)
 
                     Circle()
                         .stroke(ring, lineWidth: 5.5)
@@ -447,29 +492,6 @@ struct SpeedLimitSign: View {
                         .offset(x: 2, y: 2)
                 }
             }
-        }
-    }
-
-    private func flashFill(_ phase: FlashPhase) -> Color {
-        switch phase {
-        case .red: Color(hex: 0xE30613)
-        case .blue: Color(hex: 0x0055FF)
-        case .white: .white
-        }
-    }
-
-    private func flashRing(_ phase: FlashPhase) -> Color {
-        switch phase {
-        case .red: .white
-        case .blue: .white
-        case .white: Color(hex: 0xE30613)
-        }
-    }
-
-    private func flashNumber(_ phase: FlashPhase) -> Color {
-        switch phase {
-        case .red, .blue: .white
-        case .white: .black
         }
     }
 }

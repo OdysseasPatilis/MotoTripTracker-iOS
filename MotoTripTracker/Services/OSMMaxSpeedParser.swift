@@ -4,11 +4,11 @@ import Foundation
 enum OSMMaxSpeedParser {
     /// Country-specific implicit limits (km/h). Extend as needed.
     private static let implicitLimits: [String: Int] = [
-        "GR:urban": 50,
-        "GR:rural": 90,
-        "GR:trunk": 110,
-        "GR:motorway": 130,
-        "GR:living_street": 20,
+        "gr:urban": 50,
+        "gr:rural": 90,
+        "gr:trunk": 110,
+        "gr:motorway": 130,
+        "gr:living_street": 20,
         "urban": 50,
         "rural": 90,
         "trunk": 110,
@@ -24,10 +24,6 @@ enum OSMMaxSpeedParser {
 
         if let implicit = implicitLimits[value] {
             return implicit == 0 ? nil : implicit
-        }
-
-        if value.hasPrefix("gr:"), let implicit = implicitLimits[value] {
-            return implicit
         }
 
         // Variable / advisory limits — not a fixed number.

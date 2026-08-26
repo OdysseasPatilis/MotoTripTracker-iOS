@@ -36,7 +36,7 @@ final class TripManager {
         gForceTracker.startTracking(resetSession: true)
 
         let startTime = Date().timeIntervalSince1970
-        var stats = TripStats(tripStartTime: startTime)
+        let stats = TripStats(tripStartTime: startTime)
         sessionState = RideSessionState(stats: stats, isActive: true, isPaused: false)
         currentTripID = repository.startNewTrip(startTime: startTime)
         LogThrottle.reset(key: "trip.location")
@@ -105,15 +105,20 @@ final class TripManager {
             }
         }
 
+        let isMoving = currentSpeedMps > 0.1
         var stats = sessionState.stats
         var newMoving = stats.movingTime
         var newStopped = stats.stoppedTime
 
-        stopDetector.updateTimes(currentTime: currentTime) { movingDeltaMs, stoppedDeltaMs in
+        stopDetector.updateTimes(currentTime: currentTime, isMoving: isMoving) { movingDeltaMs, stoppedDeltaMs in
             newMoving += movingDeltaMs / 1000
             newStopped += stoppedDeltaMs / 1000
-            self.speedSmoother.reset()
+            if !isMoving {
+                self.speedSmoother.reset()
+            }
         }
+
+        gForceTracker.update(speedMps: currentSpeedMps, timestamp: currentTime)
 
         let movingHours = Double(newMoving) / 3600
         let totalKm = (stats.distanceMeters + distanceDelta) / 1000
@@ -165,7 +170,7 @@ final class TripManager {
         var finalMoving = stats.movingTime
         var finalStopped = stats.stoppedTime
 
-        stopDetector.updateTimes(currentTime: endTime) { movingDeltaMs, stoppedDeltaMs in
+        stopDetector.updateTimes(currentTime: endTime, isMoving: false) { movingDeltaMs, stoppedDeltaMs in
             finalMoving += movingDeltaMs / 1000
             finalStopped += stoppedDeltaMs / 1000
         }

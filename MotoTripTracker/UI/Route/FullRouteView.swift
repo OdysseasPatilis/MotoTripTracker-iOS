@@ -18,6 +18,7 @@ struct FullRouteView: View {
     @State private var waypoints: [RoutePoint] = []
     @State private var selectedLayer: MapLayer = .speed
     @State private var cameraPosition: MapCameraPosition = .automatic
+    @State private var tripDistanceKm: Double = 0
 
     var body: some View {
         let colors = theme.palette
@@ -30,10 +31,13 @@ struct FullRouteView: View {
                 layerPicker(colors: colors)
                 routeMap(colors: colors)
                     .frame(height: 320)
-                elevationChart(colors: colors)
-                    .frame(height: 100)
+                    .id(selectedLayer)
+                profileChart(colors: colors)
                     .padding(.horizontal, 16)
                     .padding(.top, 12)
+                legendPills(colors: colors)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 10)
                 waypointList(colors: colors)
             }
         }
@@ -41,6 +45,7 @@ struct FullRouteView: View {
         .onAppear {
             points = app.repository.routePoints(for: tripID)
             waypoints = app.repository.waypoints(for: tripID)
+            tripDistanceKm = (app.repository.fetchTrip(id: tripID)?.distanceMeters ?? 0) / 1000
             let coords = points.map {
                 CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude)
             }
@@ -54,7 +59,9 @@ struct FullRouteView: View {
         HStack(spacing: 8) {
             ForEach(MapLayer.allCases) { layer in
                 Button {
-                    selectedLayer = layer
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        selectedLayer = layer
+                    }
                 } label: {
                     Text(layer.rawValue.uppercased())
                         .font(.system(size: 12, weight: .bold))
@@ -67,6 +74,7 @@ struct FullRouteView: View {
                             in: Capsule()
                         )
                 }
+                .buttonStyle(.plain)
             }
             Spacer()
         }
@@ -100,43 +108,116 @@ struct FullRouteView: View {
         .mapStyle(.standard(elevation: .realistic))
     }
 
-    private func elevationChart(colors: AppPalette) -> some View {
-        let altitudes = points.map(\.altitude)
-        return Canvas { context, size in
-            guard altitudes.count > 1,
-                  let minA = altitudes.min(),
-                  let maxA = altitudes.max(),
-                  maxA > minA
-            else {
+    private func profileChart(colors: AppPalette) -> some View {
+        let values: [Double] = points.map { point in
+            selectedLayer == .elevation ? point.altitude : point.speedMps * 3.6
+        }
+        let lineColor = selectedLayer == .elevation ? colors.neonBlue : colors.routeTeal
+        let fillColor = lineColor.opacity(0.12)
+        let peak = values.max() ?? 0
+        let peakLabel = selectedLayer == .elevation
+            ? "+\(Int(peak)) m peak"
+            : "\(Int(peak)) km/h peak"
+        let peakColor = selectedLayer == .elevation ? colors.neonBlue : colors.routeCoral
+
+        return VStack(alignment: .leading, spacing: 8) {
+            Text(selectedLayer == .elevation ? "ELEVATION PROFILE" : "SPEED PROFILE")
+                .font(.system(size: 10, weight: .medium))
+                .tracking(1)
+                .foregroundStyle(colors.textSecondary)
+
+            Canvas { context, size in
                 context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(colors.bgCard))
-                return
+
+                guard values.count > 1 else { return }
+
+                let pad: CGFloat = 10
+                let minV = values.min() ?? 0
+                let maxV = values.max() ?? 1
+                let range = max(maxV - minV, 1)
+                let usableWidth = size.width - pad * 2
+                let usableHeight = size.height - pad * 2
+
+                func point(at index: Int) -> CGPoint {
+                    let x = pad + usableWidth * CGFloat(index) / CGFloat(values.count - 1)
+                    let y = pad + usableHeight * (1 - CGFloat((values[index] - minV) / range))
+                    return CGPoint(x: x, y: y)
+                }
+
+                var path = Path()
+                for index in values.indices {
+                    let p = point(at: index)
+                    if index == 0 {
+                        path.move(to: p)
+                    } else {
+                        path.addLine(to: p)
+                    }
+                }
+
+                var fill = path
+                fill.addLine(to: CGPoint(x: pad + usableWidth, y: size.height - pad))
+                fill.addLine(to: CGPoint(x: pad, y: size.height - pad))
+                fill.closeSubpath()
+                context.fill(fill, with: .color(fillColor))
+                context.stroke(path, with: .color(lineColor), lineWidth: 2)
             }
+            .frame(height: 80)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(colors.borderSubtle, lineWidth: 1)
+            )
+            .id(selectedLayer)
 
-            context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(colors.bgCard))
+            HStack {
+                Text("0 km")
+                    .font(.system(size: 9))
+                    .foregroundStyle(colors.textSecondary)
+                Spacer()
+                Text(peakLabel)
+                    .font(.system(size: 9))
+                    .foregroundStyle(peakColor)
+                Spacer()
+                Text(String(format: "%.1f km", tripDistanceKm))
+                    .font(.system(size: 9))
+                    .foregroundStyle(colors.textSecondary)
+            }
+        }
+    }
 
-            var path = Path()
-            for (index, altitude) in altitudes.enumerated() {
-                let x = size.width * CGFloat(index) / CGFloat(altitudes.count - 1)
-                let y = size.height * (1 - CGFloat((altitude - minA) / (maxA - minA)))
-                if index == 0 {
-                    path.move(to: CGPoint(x: x, y: y))
-                } else {
-                    path.addLine(to: CGPoint(x: x, y: y))
+    private func legendPills(colors: AppPalette) -> some View {
+        let pills: [(Color, String, String)] = selectedLayer == .speed
+            ? [
+                (colors.routeAmber, "Slow", "0–40 km/h"),
+                (colors.routeTeal, "Cruise", "40–130 km/h"),
+                (colors.routeCoral, "Fast", "130+ km/h")
+            ]
+            : [
+                (colors.routeTeal, "Low", "bottom third"),
+                (colors.neonBlue, "Mid", "middle third"),
+                (colors.routeCoral, "High", "top third")
+            ]
+
+        return ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(Array(pills.enumerated()), id: \.offset) { _, pill in
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(pill.0)
+                            .frame(width: 8, height: 8)
+                        Text(pill.1)
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(colors.textPrimary)
+                        Text(pill.2)
+                            .font(.system(size: 10))
+                            .foregroundStyle(colors.textMuted)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(colors.bgCard, in: Capsule())
                 }
             }
-            context.stroke(path, with: .color(colors.neonBlue), lineWidth: 2)
-
-            var fill = path
-            fill.addLine(to: CGPoint(x: size.width, y: size.height))
-            fill.addLine(to: CGPoint(x: 0, y: size.height))
-            fill.closeSubpath()
-            context.fill(fill, with: .color(colors.neonBlue.opacity(0.12)))
         }
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(colors.borderSubtle, lineWidth: 1)
-        )
     }
 
     private func waypointList(colors: AppPalette) -> some View {
@@ -177,6 +258,10 @@ struct FullRouteView: View {
 
     private func segments(colors: AppPalette) -> [RouteSegment] {
         guard points.count > 1 else { return [] }
+        let altitudes = points.map(\.altitude)
+        let minE = altitudes.min() ?? 0
+        let maxE = altitudes.max() ?? 0
+
         var result: [RouteSegment] = []
         for i in 0..<(points.count - 1) {
             let a = points[i]
@@ -193,8 +278,6 @@ struct FullRouteView: View {
                 }
             } else {
                 let elev = a.altitude
-                let minE = points.map(\.altitude).min() ?? elev
-                let maxE = points.map(\.altitude).max() ?? elev
                 let t = maxE > minE ? (elev - minE) / (maxE - minE) : 0.5
                 color = t < 0.33 ? colors.routeTeal : (t < 0.66 ? colors.neonBlue : colors.routeCoral)
             }
