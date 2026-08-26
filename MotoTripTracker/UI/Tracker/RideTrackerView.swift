@@ -17,27 +17,22 @@ struct RideTrackerView: View {
         let session = app.tripManager.sessionState
         let stats = session.stats
         let colors = theme.palette
-
         let isOverLimit = session.isActive && !session.isPaused && stats.speed > Double(speedLimitKmh)
 
-        ZStack {
-            colors.bgDeep.ignoresSafeArea()
-
-            VStack(spacing: 0) {
-                ScrollView {
-                    VStack(spacing: 12) {
-                        header(colors: colors)
-                        speedometerCard(stats: stats, colors: colors)
-                        statsGrid(stats: stats, colors: colors)
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.top, 24)
-                    .padding(.bottom, 12)
-                }
-
-                bottomBar(session: session, colors: colors)
+        ScrollView {
+            VStack(spacing: 20) {
+                speedometerCard(stats: stats, colors: colors)
+                statsGrid(stats: stats, colors: colors)
             }
-
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .padding(.bottom, 24)
+        }
+        .background(colors.bgDeep.ignoresSafeArea())
+        .safeAreaInset(edge: .bottom) {
+            bottomBar(session: session, colors: colors)
+        }
+        .overlay {
             OverLimitScreenFlash(isActive: isOverLimit)
                 .allowsHitTesting(false)
                 .ignoresSafeArea()
@@ -45,13 +40,38 @@ struct RideTrackerView: View {
         .overlay(alignment: .top) {
             if let banner = discardBanner {
                 Text(banner)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.subheadline.weight(.semibold))
                     .foregroundStyle(colors.textPrimary)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
-                    .background(colors.bgPanel.opacity(0.95), in: Capsule())
+                    .background(.regularMaterial, in: Capsule())
                     .padding(.top, 8)
                     .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .navigationTitle("Ride")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                HStack(spacing: 8) {
+                    Text(clock)
+                        .font(.subheadline.monospacedDigit())
+                        .foregroundStyle(colors.textSecondary)
+                    BatteryIndicator(level: batteryLevel, colors: colors)
+                }
+            }
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                Button {
+                    theme.toggle()
+                } label: {
+                    Image(systemName: theme.mode.toggleSymbol)
+                }
+                .accessibilityLabel("Switch to \(theme.mode.toggleLabel) theme")
+
+                NavigationLink(value: AppRoute.history) {
+                    Image(systemName: "list.bullet")
+                }
+                .accessibilityLabel("Ride history")
             }
         }
         .onAppear {
@@ -76,42 +96,8 @@ struct RideTrackerView: View {
         }
     }
 
-    private func header(colors: AppPalette) -> some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("RIDE TRACKER")
-                    .font(.system(size: 10, weight: .medium))
-                    .tracking(2)
-                    .foregroundStyle(colors.textMuted)
-                Text(clock)
-                    .font(.system(size: 22, weight: .bold))
-                    .foregroundStyle(colors.textPrimary)
-            }
-            Spacer()
-            HStack(spacing: 10) {
-                BatteryIndicator(level: batteryLevel, colors: colors)
-                Button {
-                    theme.toggle()
-                } label: {
-                    Image(systemName: theme.mode.toggleSymbol)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(colors.textMuted)
-                        .frame(width: 32, height: 32)
-                        .background(colors.bgPanel, in: Circle())
-                }
-                .accessibilityLabel("Switch to \(theme.mode.toggleLabel) theme")
-                NavigationLink(value: AppRoute.history) {
-                    Text("HISTORY")
-                        .font(.system(size: 11, weight: .medium))
-                        .tracking(1)
-                        .foregroundStyle(colors.neonGreen)
-                }
-            }
-        }
-    }
-
     private func speedometerCard(stats: TripStats, colors: AppPalette) -> some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 14) {
             if stats.gpsQuality != .unknown || stats.gpsAccuracyMeters != nil {
                 gpsStatusRow(stats: stats, colors: colors)
             }
@@ -130,10 +116,10 @@ struct RideTrackerView: View {
                 colors: colors
             )
         }
-        .padding(.vertical, 8)
-        .padding(.horizontal, 24)
+        .padding(.vertical, 16)
+        .padding(.horizontal, 20)
         .frame(maxWidth: .infinity)
-        .background(colors.bgPanel, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .background(colors.bgCard, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
     private func gpsStatusRow(stats: TripStats, colors: AppPalette) -> some View {
@@ -145,28 +131,17 @@ struct RideTrackerView: View {
             case .unknown: colors.textMuted
             }
         }()
-        let accuracyText: String = {
+        let title: String = {
             if let meters = stats.gpsAccuracyMeters {
-                return String(format: "±%.0fm", meters)
+                return "\(stats.gpsQuality.label) ±\(Int(meters))m"
             }
-            return ""
+            return stats.gpsQuality.label
         }()
 
-        return HStack(spacing: 8) {
-            Circle()
-                .fill(tint)
-                .frame(width: 8, height: 8)
-            Text(stats.gpsQuality.label)
-                .font(.system(size: 11, weight: .bold))
-                .tracking(1)
-                .foregroundStyle(tint)
-            if !accuracyText.isEmpty {
-                Text(accuracyText)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(colors.textMuted)
-            }
-            Spacer()
-        }
+        return Label(title, systemImage: "location.fill")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(tint)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func cycleSpeedLimit() {
@@ -189,49 +164,26 @@ struct RideTrackerView: View {
     }
 
     private func statsGrid(stats: TripStats, colors: AppPalette) -> some View {
-        VStack(spacing: 12) {
-            HStack(spacing: 12) {
-                StatCard(label: "DISTANCE", value: String(format: "%.1f km", stats.distanceKm), colors: colors)
-                StatCard(label: "TOTAL TIME", value: RideFormatters.secondsToTime(stats.tripTime), colors: colors)
-            }
-            HStack(spacing: 12) {
-                StatCard(
-                    label: "MOVING",
-                    value: RideFormatters.secondsToTime(stats.movingTime),
-                    valueColor: colors.neonGreen,
-                    colors: colors
-                )
-                StatCard(
-                    label: "STOPPED",
-                    value: RideFormatters.secondsToTime(stats.stoppedTime),
-                    valueColor: colors.neonRed,
-                    colors: colors
-                )
-            }
-            HStack(spacing: 12) {
-                StatCard(label: "AVG SPEED", value: "\(Int(stats.avgSpeed)) km/h", colors: colors)
-                StatCard(label: "MAX SPEED", value: "\(Int(stats.maxSpeed)) km/h", colors: colors)
-            }
-            HStack(spacing: 12) {
-                StatCard(label: "ELEVATION", value: "\(Int(stats.totalElevationGain)) m", colors: colors)
-                StatCard(
-                    label: "MAX G",
-                    value: String(format: "%.2f G", stats.maxGForce),
-                    valueColor: colors.neonBlue,
-                    colors: colors
-                )
-            }
-            HStack(spacing: 12) {
-                StatCard(
-                    label: "LATERAL G",
-                    value: String(format: "%.2f G", stats.currentLateralGForce),
-                    valueColor: colors.neonBlue,
-                    colors: colors
-                )
-                StatCard(
-                    label: "CORNERS",
-                    value: "\(stats.cornerCount)",
-                    valueColor: colors.neonGreen,
+        let columns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
+        let metrics: [(String, String, Color?)] = [
+            ("Distance", String(format: "%.1f km", stats.distanceKm), nil),
+            ("Total time", RideFormatters.secondsToTime(stats.tripTime), nil),
+            ("Moving", RideFormatters.secondsToTime(stats.movingTime), colors.neonGreen),
+            ("Stopped", RideFormatters.secondsToTime(stats.stoppedTime), colors.neonRed),
+            ("Avg speed", "\(Int(stats.avgSpeed)) km/h", nil),
+            ("Max speed", "\(Int(stats.maxSpeed)) km/h", nil),
+            ("Elevation", "\(Int(stats.totalElevationGain)) m", nil),
+            ("Max G", String(format: "%.2f G", stats.maxGForce), colors.neonBlue),
+            ("Lateral G", String(format: "%.2f G", stats.currentLateralGForce), colors.neonBlue),
+            ("Corners", "\(stats.cornerCount)", colors.neonGreen)
+        ]
+
+        return LazyVGrid(columns: columns, spacing: 12) {
+            ForEach(Array(metrics.enumerated()), id: \.offset) { _, metric in
+                MetricTile(
+                    label: metric.0,
+                    value: metric.1,
+                    valueColor: metric.2,
                     colors: colors
                 )
             }
@@ -239,7 +191,7 @@ struct RideTrackerView: View {
     }
 
     private func bottomBar(session: RideSessionState, colors: AppPalette) -> some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 12) {
             if session.isActive {
                 Button {
                     if session.isPaused {
@@ -248,23 +200,18 @@ struct RideTrackerView: View {
                         app.pauseRide()
                     }
                 } label: {
-                    HStack(spacing: 6) {
-                        if !session.isPaused {
-                            Circle()
-                                .fill(colors.stopRed)
-                                .frame(width: 8, height: 8)
-                        }
-                        Text(session.isPaused ? "RESUME" : "PAUSE")
-                            .font(.system(size: 14, weight: .bold))
-                    }
+                    Label(
+                        session.isPaused ? "Resume" : "Pause",
+                        systemImage: session.isPaused ? "play.fill" : "pause.fill"
+                    )
+                    .font(.headline)
                     .frame(maxWidth: .infinity)
-                    .frame(height: 56)
-                    .foregroundStyle(colors.textPrimary)
-                    .background(colors.bgPanel, in: Capsule())
-                    .overlay(Capsule().stroke(colors.pauseBorder, lineWidth: 1))
+                    .frame(height: 50)
                 }
+                .buttonStyle(.bordered)
+                .tint(colors.textPrimary)
 
-                Button {
+                Button(role: .destructive) {
                     let saved = app.stopRide()
                     UIApplication.shared.isIdleTimerDisabled = false
                     if !saved {
@@ -277,70 +224,55 @@ struct RideTrackerView: View {
                         }
                     }
                 } label: {
-                    Text("STOP")
-                        .font(.system(size: 14, weight: .bold))
-                        .tracking(1)
+                    Label("Stop", systemImage: "stop.fill")
+                        .font(.headline)
                         .frame(maxWidth: .infinity)
-                        .frame(height: 56)
-                        .foregroundStyle(colors.stopRed)
-                        .background(colors.stopRed.opacity(0.15), in: Capsule())
-                        .overlay(Capsule().stroke(colors.stopRed.opacity(0.3), lineWidth: 1))
+                        .frame(height: 50)
                 }
+                .buttonStyle(.borderedProminent)
+                .tint(colors.stopRed)
             } else {
                 let enabled = app.locationService.isLocationEnabled
                 Button {
                     app.startRide()
                 } label: {
-                    Text(enabled ? "START RIDE" : "ENABLE GPS TO START")
-                        .font(.system(size: 16, weight: .bold))
-                        .tracking(2)
+                    Text(enabled ? "Start Ride" : "Enable GPS to Start")
+                        .font(.headline)
                         .frame(maxWidth: .infinity)
-                        .frame(height: 56)
-                        .foregroundStyle(enabled ? Color(hex: 0x0A0A0F) : colors.startButtonDisabledText)
-                        .background {
-                            if enabled {
-                                colors.startGradient
-                            } else {
-                                colors.startButtonDisabledBg
-                            }
-                        }
-                        .clipShape(Capsule())
+                        .frame(height: 50)
                 }
+                .buttonStyle(.borderedProminent)
+                .tint(colors.neonGreen)
                 .disabled(!enabled)
             }
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 12)
-        .padding(.bottom, 24)
-        .background(colors.bgDeep)
+        .padding(.horizontal, 16)
+        .padding(.top, 10)
+        .padding(.bottom, 8)
+        .background(.bar)
     }
 }
 
-struct StatCard: View {
+struct MetricTile: View {
     let label: String
     let value: String
     var valueColor: Color?
     let colors: AppPalette
 
     var body: some View {
-        VStack(spacing: 6) {
+        VStack(alignment: .leading, spacing: 6) {
             Text(label)
-                .font(.system(size: 11, weight: .medium))
-                .tracking(1)
-                .foregroundStyle(colors.textMuted)
+                .font(.caption)
+                .foregroundStyle(colors.textSecondary)
             Text(value)
-                .font(.system(size: 22, weight: .semibold))
+                .font(.title3.weight(.semibold))
                 .foregroundStyle(valueColor ?? colors.textPrimary)
                 .minimumScaleFactor(0.7)
                 .lineLimit(1)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 18)
-        .background(colors.bgCard, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(colors.borderSubtle, lineWidth: 1)
-        )
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(colors.bgCard, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
 
@@ -448,12 +380,11 @@ struct SpeedometerArc: View {
 
             VStack(spacing: 0) {
                 Text("\(Int(speedKmh))")
-                    .font(.system(size: 72, weight: .bold))
+                    .font(.system(size: 72, weight: .bold, design: .rounded))
                     .foregroundStyle(isOverLimit ? colors.stopRed : colors.textPrimary)
-                Text("KM/H")
-                    .font(.system(size: 14, weight: .medium))
-                    .tracking(3)
-                    .foregroundStyle(colors.textMuted)
+                Text("km/h")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(colors.textSecondary)
             }
 
             SpeedLimitSign(
@@ -511,7 +442,6 @@ enum OverLimitFlashPhase: Int {
     }
 }
 
-/// Full-screen translucent flash matching the speed-limit sign palette.
 struct OverLimitScreenFlash: View {
     let isActive: Bool
 
@@ -526,7 +456,6 @@ struct OverLimitScreenFlash: View {
     }
 }
 
-/// European-style circular speed-limit badge. Flashes red / blue / white when over limit.
 struct SpeedLimitSign: View {
     let limitKmh: Int
     let isOverLimit: Bool
@@ -578,9 +507,9 @@ struct GForceBar: View {
     }
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 6) {
             Text(String(format: "%.2f G", value))
-                .font(.system(size: 15, weight: .medium))
+                .font(.subheadline.weight(.medium))
                 .foregroundStyle(colors.textPrimary)
 
             GeometryReader { geo in
@@ -589,17 +518,13 @@ struct GForceBar: View {
                     Capsule()
                         .fill(colors.startGradient)
                         .frame(width: max(geo.size.width * fillFraction, 0))
-                    Rectangle()
-                        .fill(colors.gForceTick)
-                        .frame(width: 1)
-                        .frame(maxWidth: .infinity)
                 }
             }
             .frame(width: 200, height: 6)
 
-            Text(String(format: "MAX: %.2f G", maxValue))
-                .font(.system(size: 11))
-                .foregroundStyle(colors.textMuted)
+            Text(String(format: "Max %.2f G", maxValue))
+                .font(.caption)
+                .foregroundStyle(colors.textSecondary)
         }
     }
 }
@@ -615,31 +540,24 @@ struct BatteryIndicator: View {
     }
 
     var body: some View {
-        HStack(spacing: 5) {
-            Canvas { context, size in
-                let bodyW = size.width - 3
-                let bodyH = size.height
-                let termH: CGFloat = 5
-                context.stroke(
-                    Path(roundedRect: CGRect(x: 0, y: 0, width: bodyW, height: bodyH), cornerRadius: 2),
-                    with: .color(colors.batteryOutline),
-                    lineWidth: 1.5
-                )
-                context.fill(
-                    Path(roundedRect: CGRect(x: bodyW, y: (bodyH - termH) / 2, width: 3, height: termH), cornerRadius: 1),
-                    with: .color(colors.batteryOutline)
-                )
-                let fillW = max((bodyW - 4) * CGFloat(level) / 100, 0)
-                context.fill(
-                    Path(roundedRect: CGRect(x: 2, y: 2, width: fillW, height: bodyH - 4), cornerRadius: 1),
-                    with: .color(fillColor)
-                )
-            }
-            .frame(width: 24, height: 13)
-
+        HStack(spacing: 4) {
+            Image(systemName: batterySymbol)
+                .font(.caption)
+                .foregroundStyle(fillColor)
             Text("\(level)%")
-                .font(.system(size: 11))
+                .font(.caption2)
                 .foregroundStyle(colors.batteryLabel)
+        }
+        .accessibilityLabel("Battery \(level) percent")
+    }
+
+    private var batterySymbol: String {
+        switch level {
+        case 0...10: "battery.0percent"
+        case 11...25: "battery.25percent"
+        case 26...50: "battery.50percent"
+        case 51...75: "battery.75percent"
+        default: "battery.100percent"
         }
     }
 }

@@ -7,7 +7,7 @@ enum RideHistoryTab: String, CaseIterable, Identifiable {
 }
 
 enum DateFilterPreset: String, CaseIterable, Identifiable {
-    case any = "Any"
+    case any = "Any time"
     case today = "Today"
     case yesterday = "Yesterday"
     case thisWeek = "This week"
@@ -24,7 +24,6 @@ private enum CustomDateField {
 struct RideHistoryView: View {
     @Environment(AppContainer.self) private var app
     @Environment(ThemeStore.self) private var theme
-    @Environment(\.dismiss) private var dismiss
 
     @State private var allRides: [Trip] = []
     @State private var selectedTab: RideHistoryTab = .all
@@ -41,49 +40,100 @@ struct RideHistoryView: View {
     var body: some View {
         let colors = theme.palette
 
-        ZStack {
-            colors.bgDeep.ignoresSafeArea()
-
-            VStack(alignment: .leading, spacing: 0) {
-                ScreenTopBar(title: "Ride History", onBack: { dismiss() })
-                tabPicker(colors: colors)
-                searchField(colors: colors)
-                dateFilterRow(colors: colors)
-                if datePreset == .custom {
-                    customDateRow(colors: colors)
+        List {
+            Section {
+                Picker("Show", selection: $selectedTab) {
+                    ForEach(RideHistoryTab.allCases) { tab in
+                        Text(tab.rawValue).tag(tab)
+                    }
                 }
+                .pickerStyle(.segmented)
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
+            }
 
-                if visibleRides.isEmpty {
-                    Spacer()
-                    Text(emptyMessage)
-                        .font(.system(size: 14))
-                        .foregroundStyle(colors.emptyText)
-                        .frame(maxWidth: .infinity)
-                    Spacer()
-                } else {
-                    ScrollView {
-                        LazyVStack(spacing: 10) {
-                            ForEach(visibleRides, id: \.id) { ride in
-                                NavigationLink(value: AppRoute.summary(ride.id)) {
-                                    RideHistoryCard(
-                                        ride: ride,
-                                        colors: colors,
-                                        onToggleFavorite: {
-                                            app.repository.toggleFavorite(id: ride.id)
-                                            reload()
-                                        }
+            Section {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(DateFilterPreset.allCases) { preset in
+                            Button {
+                                selectDatePreset(preset)
+                            } label: {
+                                Text(preset.rawValue)
+                                    .font(.subheadline.weight(.medium))
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 7)
+                                    .foregroundStyle(datePreset == preset ? Color.white : colors.textPrimary)
+                                    .background(
+                                        datePreset == preset ? colors.neonGreen : colors.bgPanel,
+                                        in: Capsule()
                                     )
-                                }
-                                .buttonStyle(.plain)
                             }
+                            .buttonStyle(.plain)
                         }
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 4)
+                    }
+                    .padding(.vertical, 4)
+                }
+                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                .listRowBackground(Color.clear)
+
+                if datePreset == .custom {
+                    HStack(spacing: 12) {
+                        Button {
+                            activeCustomField = .from
+                        } label: {
+                            dateChipLabel("From", date: customFrom, colors: colors)
+                        }
+                        .buttonStyle(.plain)
+
+                        Button {
+                            activeCustomField = .to
+                        } label: {
+                            dateChipLabel("To", date: customTo, colors: colors)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .listRowBackground(Color.clear)
+                }
+            }
+
+            if visibleRides.isEmpty {
+                Section {
+                    ContentUnavailableView(
+                        emptyTitle,
+                        systemImage: "bicycle",
+                        description: Text(emptyDescription)
+                    )
+                    .listRowBackground(Color.clear)
+                }
+            } else {
+                Section {
+                    ForEach(visibleRides, id: \.id) { ride in
+                        NavigationLink(value: AppRoute.summary(ride.id)) {
+                            RideHistoryRow(ride: ride, colors: colors)
+                        }
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button {
+                                app.repository.toggleFavorite(id: ride.id)
+                                reload()
+                            } label: {
+                                Label(
+                                    ride.isFavorite ? "Unfavorite" : "Favorite",
+                                    systemImage: ride.isFavorite ? "star.slash" : "star.fill"
+                                )
+                            }
+                            .tint(colors.routeAmber)
+                        }
                     }
                 }
             }
         }
-        .toolbar(.hidden, for: .navigationBar)
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .background(colors.bgDeep.ignoresSafeArea())
+        .navigationTitle("History")
+        .navigationBarTitleDisplayMode(.large)
+        .searchable(text: $searchQuery, prompt: "Search rides")
         .onAppear { reload() }
         .sheet(item: $activeCustomField) { field in
             CustomDatePickerSheet(
@@ -96,123 +146,32 @@ struct RideHistoryView: View {
         }
     }
 
-    private var emptyMessage: String {
+    private var emptyTitle: String {
         if !searchQuery.isEmpty || datePreset != .any || selectedTab == .favorites {
-            return "No rides match your filters"
+            return "No Matching Rides"
         }
-        return "No rides recorded yet"
+        return "No Rides Yet"
     }
 
-    private func tabPicker(colors: AppPalette) -> some View {
-        HStack(spacing: 8) {
-            ForEach(RideHistoryTab.allCases) { tab in
-                Button {
-                    selectedTab = tab
-                } label: {
-                    Text(tab.rawValue.uppercased())
-                        .font(.system(size: 12, weight: .bold))
-                        .tracking(1)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .foregroundStyle(selectedTab == tab ? .white : colors.textMuted)
-                        .background(selectedTab == tab ? colors.layerActive : Color.clear, in: Capsule())
-                }
-                .buttonStyle(.plain)
-            }
-            Spacer()
+    private var emptyDescription: String {
+        if !searchQuery.isEmpty || datePreset != .any || selectedTab == .favorites {
+            return "Try adjusting your search or filters."
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 8)
+        return "Start a ride from the tracker to see it here."
     }
 
-    private func searchField(colors: AppPalette) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(colors.textMuted)
-            TextField("Search rides", text: $searchQuery)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
+    private func dateChipLabel(_ title: String, date: Date, colors: AppPalette) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(colors.textSecondary)
+            Text(Self.shortDate.string(from: date))
+                .font(.subheadline.weight(.semibold))
                 .foregroundStyle(colors.textPrimary)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(colors.bgCard, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .padding(.horizontal, 20)
-        .padding(.top, 10)
-    }
-
-    private func dateFilterRow(colors: AppPalette) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(DateFilterPreset.allCases) { preset in
-                    Button {
-                        selectDatePreset(preset)
-                    } label: {
-                        Text(preset.rawValue)
-                            .font(.system(size: 12, weight: .semibold))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 7)
-                            .foregroundStyle(datePreset == preset ? colors.neonGreen : colors.textMuted)
-                            .background(
-                                datePreset == preset ? colors.neonGreen.opacity(0.15) : colors.bgCard,
-                                in: Capsule()
-                            )
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, 20)
-        }
-        .padding(.vertical, 10)
-    }
-
-    private func customDateRow(colors: AppPalette) -> some View {
-        HStack(spacing: 10) {
-            customDateChip(
-                label: "From",
-                date: customFrom,
-                colors: colors
-            ) {
-                activeCustomField = .from
-            }
-            customDateChip(
-                label: "To",
-                date: customTo,
-                colors: colors
-            ) {
-                activeCustomField = .to
-            }
-        }
-        .padding(.horizontal, 20)
-        .padding(.bottom, 8)
-    }
-
-    private func customDateChip(
-        label: String,
-        date: Date,
-        colors: AppPalette,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(label.uppercased())
-                    .font(.system(size: 10, weight: .medium))
-                    .tracking(1)
-                    .foregroundStyle(colors.textMuted)
-                Text(Self.shortDate.string(from: date))
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(colors.textPrimary)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(colors.bgCard, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(colors.borderSubtle, lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(colors.bgCard, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private func selectDatePreset(_ preset: DateFilterPreset) {
@@ -305,94 +264,64 @@ private struct CustomDatePickerSheet: View {
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                colors.bgDeep.ignoresSafeArea()
-                DatePicker(
-                    title,
-                    selection: $selection,
-                    displayedComponents: .date
-                )
-                .datePickerStyle(.graphical)
-                .padding()
-                .tint(colors.neonGreen)
-            }
+            DatePicker(
+                title,
+                selection: $selection,
+                displayedComponents: .date
+            )
+            .datePickerStyle(.graphical)
+            .padding()
+            .tint(colors.neonGreen)
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
-                        .foregroundStyle(colors.neonGreen)
                 }
             }
         }
     }
 }
 
-struct RideHistoryCard: View {
+struct RideHistoryRow: View {
     let ride: Trip
     let colors: AppPalette
-    var onToggleFavorite: (() -> Void)?
 
     var body: some View {
-        ZStack(alignment: .leading) {
-            colors.bgCard
+        HStack(spacing: 12) {
+            Image(systemName: "bicycle")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(colors.neonGreen)
+                .frame(width: 32, height: 32)
+                .background(colors.neonGreen.opacity(0.12), in: Circle())
 
-            colors.startGradient
-                .frame(width: 4, height: 82)
-                .frame(maxHeight: .infinity, alignment: .center)
-
-            HStack(alignment: .center, spacing: 12) {
-                ZStack {
-                    Circle()
-                        .fill(colors.bgSurface)
-                        .frame(width: 36, height: 36)
-                    Image(systemName: "bicycle")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(colors.neonGreen)
-                }
-
-                VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
                     Text(ride.displayTitle)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(colors.neonGreen)
-                        .lineLimit(1)
-                    Text("\(RideFormatters.secondsToTime(ride.totalTime)) duration")
-                        .font(.system(size: 13, weight: .medium))
+                        .font(.body.weight(.semibold))
                         .foregroundStyle(colors.textPrimary)
-                    Text(
-                        String(
-                            format: "%.1f km  ·  %d km/h avg",
-                            ride.distanceKm,
-                            Int(ride.avgSpeed)
-                        )
+                        .lineLimit(1)
+                    if ride.isFavorite {
+                        Image(systemName: "star.fill")
+                            .font(.caption2)
+                            .foregroundStyle(colors.routeAmber)
+                    }
+                }
+                Text(RideFormatters.timestampToDate(ride.startTime))
+                    .font(.caption)
+                    .foregroundStyle(colors.textSecondary)
+                Text(
+                    String(
+                        format: "%@ · %.1f km · %d km/h avg",
+                        RideFormatters.secondsToTime(ride.totalTime),
+                        ride.distanceKm,
+                        Int(ride.avgSpeed)
                     )
-                    .font(.system(size: 12))
-                    .foregroundStyle(colors.textMuted)
-                }
-
-                Spacer(minLength: 8)
-
-                Button {
-                    onToggleFavorite?()
-                } label: {
-                    Image(systemName: ride.isFavorite ? "star.fill" : "star")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(ride.isFavorite ? colors.routeAmber : colors.emptyText)
-                }
-                .buttonStyle(.plain)
-
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(colors.emptyText)
+                )
+                .font(.caption)
+                .foregroundStyle(colors.textMuted)
             }
-            .padding(.leading, 16)
-            .padding(.trailing, 16)
-            .padding(.vertical, 16)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(colors.borderSubtle, lineWidth: 1)
-        )
+        .padding(.vertical, 4)
     }
 }

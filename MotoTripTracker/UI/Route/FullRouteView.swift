@@ -11,7 +11,6 @@ enum MapLayer: String, CaseIterable, Identifiable {
 struct FullRouteView: View {
     @Environment(AppContainer.self) private var app
     @Environment(ThemeStore.self) private var theme
-    @Environment(\.dismiss) private var dismiss
 
     let tripID: UUID
     @State private var points: [RoutePoint] = []
@@ -23,25 +22,59 @@ struct FullRouteView: View {
     var body: some View {
         let colors = theme.palette
 
-        ZStack {
-            colors.bgDeep.ignoresSafeArea()
+        List {
+            Section {
+                Picker("Layer", selection: $selectedLayer) {
+                    ForEach(MapLayer.allCases) { layer in
+                        Text(layer.rawValue).tag(layer)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
+            }
 
-            VStack(spacing: 0) {
-                ScreenTopBar(title: "Full Route", onBack: { dismiss() })
-                layerPicker(colors: colors)
+            Section {
                 routeMap(colors: colors)
-                    .frame(height: 320)
+                    .frame(height: 300)
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
                     .id(selectedLayer)
+            }
+
+            Section {
                 profileChart(colors: colors)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 12)
-                legendPills(colors: colors)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 10)
-                waypointList(colors: colors)
+                    .listRowBackground(Color.clear)
+                legendCaption(colors: colors)
+                    .listRowBackground(Color.clear)
+            }
+
+            if !waypoints.isEmpty {
+                Section("Waypoints") {
+                    ForEach(waypoints, id: \.id) { waypoint in
+                        HStack(spacing: 12) {
+                            Image(systemName: iconName(for: waypoint.waypointType))
+                                .foregroundStyle(markerColor(for: waypoint.waypointType, colors: colors))
+                                .frame(width: 24)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(waypoint.waypointTitle)
+                                    .font(.body.weight(.medium))
+                                    .foregroundStyle(colors.textPrimary)
+                                Text(waypoint.waypointSubtitle)
+                                    .font(.caption)
+                                    .foregroundStyle(colors.textSecondary)
+                            }
+                        }
+                        .padding(.vertical, 2)
+                    }
+                }
             }
         }
-        .toolbar(.hidden, for: .navigationBar)
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .background(colors.bgDeep.ignoresSafeArea())
+        .navigationTitle("Route")
+        .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             points = app.repository.routePoints(for: tripID)
             waypoints = app.repository.waypoints(for: tripID)
@@ -53,34 +86,6 @@ struct FullRouteView: View {
                 cameraPosition = .region(region)
             }
         }
-    }
-
-    private func layerPicker(colors: AppPalette) -> some View {
-        HStack(spacing: 8) {
-            ForEach(MapLayer.allCases) { layer in
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        selectedLayer = layer
-                    }
-                } label: {
-                    Text(layer.rawValue.uppercased())
-                        .font(.system(size: 12, weight: .bold))
-                        .tracking(1)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                        .foregroundStyle(selectedLayer == layer ? .white : colors.textMuted)
-                        .background(
-                            selectedLayer == layer ? colors.layerActive : Color.clear,
-                            in: Capsule()
-                        )
-                }
-                .buttonStyle(.plain)
-            }
-            Spacer()
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(colors.bgBar)
     }
 
     private func routeMap(colors: AppPalette) -> some View {
@@ -98,7 +103,7 @@ struct FullRouteView: View {
                     )
                 ) {
                     Image(systemName: iconName(for: waypoint.waypointType))
-                        .font(.system(size: 12, weight: .bold))
+                        .font(.caption.weight(.bold))
                         .foregroundStyle(.white)
                         .padding(6)
                         .background(markerColor(for: waypoint.waypointType, colors: colors), in: Circle())
@@ -106,6 +111,7 @@ struct FullRouteView: View {
             }
         }
         .mapStyle(.standard(elevation: .realistic))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     private func profileChart(colors: AppPalette) -> some View {
@@ -121,10 +127,9 @@ struct FullRouteView: View {
         let peakColor = selectedLayer == .elevation ? colors.neonBlue : colors.routeCoral
 
         return VStack(alignment: .leading, spacing: 8) {
-            Text(selectedLayer == .elevation ? "ELEVATION PROFILE" : "SPEED PROFILE")
-                .font(.system(size: 10, weight: .medium))
-                .tracking(1)
-                .foregroundStyle(colors.textSecondary)
+            Text(selectedLayer == .elevation ? "Elevation profile" : "Speed profile")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(colors.textPrimary)
 
             Canvas { context, size in
                 context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(colors.bgCard))
@@ -163,92 +168,32 @@ struct FullRouteView: View {
             }
             .frame(height: 80)
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(colors.borderSubtle, lineWidth: 1)
-            )
             .id(selectedLayer)
 
             HStack {
                 Text("0 km")
-                    .font(.system(size: 9))
+                    .font(.caption2)
                     .foregroundStyle(colors.textSecondary)
                 Spacer()
                 Text(peakLabel)
-                    .font(.system(size: 9))
+                    .font(.caption2.weight(.medium))
                     .foregroundStyle(peakColor)
                 Spacer()
                 Text(String(format: "%.1f km", tripDistanceKm))
-                    .font(.system(size: 9))
+                    .font(.caption2)
                     .foregroundStyle(colors.textSecondary)
             }
         }
     }
 
-    private func legendPills(colors: AppPalette) -> some View {
-        let pills: [(Color, String, String)] = selectedLayer == .speed
-            ? [
-                (colors.routeAmber, "Slow", "0–40 km/h"),
-                (colors.routeTeal, "Cruise", "40–130 km/h"),
-                (colors.routeCoral, "Fast", "130+ km/h")
-            ]
-            : [
-                (colors.routeTeal, "Low", "bottom third"),
-                (colors.neonBlue, "Mid", "middle third"),
-                (colors.routeCoral, "High", "top third")
-            ]
-
-        return ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(Array(pills.enumerated()), id: \.offset) { _, pill in
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(pill.0)
-                            .frame(width: 8, height: 8)
-                        Text(pill.1)
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(colors.textPrimary)
-                        Text(pill.2)
-                            .font(.system(size: 10))
-                            .foregroundStyle(colors.textMuted)
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(colors.bgCard, in: Capsule())
-                }
-            }
-        }
-    }
-
-    private func waypointList(colors: AppPalette) -> some View {
-        List {
-            Section {
-                ForEach(waypoints, id: \.id) { waypoint in
-                    HStack(spacing: 12) {
-                        Image(systemName: iconName(for: waypoint.waypointType))
-                            .foregroundStyle(markerColor(for: waypoint.waypointType, colors: colors))
-                            .frame(width: 24)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(waypoint.waypointTitle)
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(colors.textPrimary)
-                            Text(waypoint.waypointSubtitle)
-                                .font(.system(size: 12))
-                                .foregroundStyle(colors.textMuted)
-                        }
-                    }
-                    .listRowBackground(colors.bgCard)
-                }
-            } header: {
-                Text("ROUTE WAYPOINTS")
-                    .font(.system(size: 11, weight: .medium))
-                    .tracking(2)
-                    .foregroundStyle(colors.textMuted)
-            }
-        }
-        .scrollContentBackground(.hidden)
-        .listStyle(.plain)
-        .background(colors.bgDeep)
+    private func legendCaption(colors: AppPalette) -> some View {
+        let text: String = selectedLayer == .speed
+            ? "Slow 0–40 · Cruise 40–130 · Fast 130+ km/h"
+            : "Low · Mid · High elevation thirds"
+        return Text(text)
+            .font(.caption)
+            .foregroundStyle(colors.textSecondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private struct RouteSegment {

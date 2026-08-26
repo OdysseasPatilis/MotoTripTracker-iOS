@@ -12,7 +12,6 @@ struct RootNavigationView: View {
     var body: some View {
         NavigationStack {
             RideTrackerView()
-                .toolbar(.hidden, for: .navigationBar)
                 .navigationDestination(for: AppRoute.self) { route in
                     switch route {
                     case .history:
@@ -24,6 +23,7 @@ struct RootNavigationView: View {
                     }
                 }
         }
+        .tint(theme.palette.neonGreen)
         .preferredColorScheme(theme.mode.colorScheme)
         .animation(.easeInOut(duration: 0.25), value: theme.mode)
     }
