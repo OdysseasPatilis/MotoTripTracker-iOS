@@ -5,6 +5,7 @@ import os
 @main
 struct MotoTripTrackerApp: App {
     @State private var container = AppContainer()
+    @State private var showSplash = true
 
     init() {
         AppLogger.app.notice("MotoTripTracker launching")
@@ -12,10 +13,24 @@ struct MotoTripTrackerApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootNavigationView()
-                .environment(container)
-                .environment(container.theme)
-                .modelContainer(container.modelContainer)
+            ZStack {
+                RootNavigationView()
+                    .environment(container)
+                    .environment(container.theme)
+                    .modelContainer(container.modelContainer)
+                    .opacity(showSplash ? 0 : 1)
+
+                if showSplash {
+                    SplashView {
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            showSplash = false
+                        }
+                    }
+                    .transition(.opacity)
+                    .zIndex(1)
+                }
+            }
+            .preferredColorScheme(container.theme.mode.colorScheme)
         }
     }
 }
