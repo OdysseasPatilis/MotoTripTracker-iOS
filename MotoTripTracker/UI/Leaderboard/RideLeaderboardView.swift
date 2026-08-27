@@ -130,7 +130,7 @@ struct RideLeaderboardView: View {
         .scrollContentBackground(.hidden)
         .background(colors.bgDeep.ignoresSafeArea())
         .navigationTitle("Leaderboard")
-        .navigationBarTitleDisplayMode(.large)
+        .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             trips = app.repository.allTrips()
         }

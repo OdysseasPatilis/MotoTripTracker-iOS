@@ -132,7 +132,7 @@ struct RideHistoryView: View {
         .scrollContentBackground(.hidden)
         .background(colors.bgDeep.ignoresSafeArea())
         .navigationTitle("History")
-        .navigationBarTitleDisplayMode(.large)
+        .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $searchQuery, prompt: "Search rides")
         .onAppear { reload() }
         .sheet(item: $activeCustomField) { field in
