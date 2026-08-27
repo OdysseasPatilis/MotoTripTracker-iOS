@@ -198,6 +198,76 @@ struct MotoTripTrackerTests {
         #expect(athens?.contains(downtown) == true)
     }
 
+    @Test func rideMomentsTellStoriesNotDuplicateStats() {
+        let start: TimeInterval = 1_700_000_000
+        var points: [RoutePoint] = []
+        // Climbing + accelerating stretch
+        for i in 0..<40 {
+            let t = start + Double(i) * 2
+            points.append(
+                RoutePoint(
+                    latitude: 37.98 + Double(i) * 0.0002,
+                    longitude: 23.72,
+                    altitude: 100 + Double(i) * 2.5,
+                    speedMps: 5 + Double(i) * 0.6,
+                    timestamp: t
+                )
+            )
+        }
+        // Stop for 40s
+        let stopStart = start + 80
+        for i in 0..<20 {
+            points.append(
+                RoutePoint(
+                    latitude: 37.988,
+                    longitude: 23.72,
+                    altitude: 200,
+                    speedMps: 0.1,
+                    timestamp: stopStart + Double(i) * 2
+                )
+            )
+        }
+        // Descent
+        for i in 0..<25 {
+            points.append(
+                RoutePoint(
+                    latitude: 37.99 + Double(i) * 0.0002,
+                    longitude: 23.72,
+                    altitude: 200 - Double(i) * 3,
+                    speedMps: 15,
+                    timestamp: stopStart + 40 + Double(i) * 2
+                )
+            )
+        }
+
+        let trip = Trip(
+            startTime: start,
+            distanceMeters: 12_000,
+            movingTime: 600,
+            stoppedTime: 40,
+            maxSpeed: 120,
+            maxGForce: 0.4,
+            elevationGain: 100,
+            avgSpeed: 55,
+            maxLateralGForce: 0.3,
+            cornerCount: 14
+        )
+
+        let result = RideMomentsCalculator.calculate(trip: trip, points: points)
+        let moments = result.moments
+        let ids = Set(moments.map(\.id))
+
+        #expect(!moments.isEmpty)
+        let hasStory = ids.contains("peak-speed")
+            || ids.contains("biggest-climb")
+            || ids.contains("longest-stop")
+        #expect(hasStory)
+
+        let duplicateTitles = Set(["Max G", "Corners", "Moving pace"])
+        #expect(moments.allSatisfy { !duplicateTitles.contains($0.title) })
+        #expect(moments.allSatisfy { !$0.systemImage.isEmpty })
+    }
+
     @Test func gpxExporterContainsTrackPoints() {
         let trip = Trip(startTime: 1_700_000_000, title: "Test Ride")
         let points = [

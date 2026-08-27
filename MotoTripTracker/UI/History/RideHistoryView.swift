@@ -49,36 +49,31 @@ struct RideHistoryView: View {
                 }
                 .pickerStyle(.segmented)
                 .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
+                .listRowInsets(EdgeInsets(top: 2, leading: 16, bottom: 2, trailing: 16))
             }
 
             Section {
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
+                    HStack(spacing: 6) {
                         ForEach(DateFilterPreset.allCases) { preset in
+                            let isSelected = datePreset == preset
                             Button {
                                 selectDatePreset(preset)
                             } label: {
                                 Text(preset.rawValue)
-                                    .font(.subheadline.weight(.medium))
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 7)
-                                    .foregroundStyle(datePreset == preset ? Color.white : colors.textPrimary)
-                                    .background(
-                                        datePreset == preset ? colors.neonGreen : colors.bgPanel,
-                                        in: Capsule()
-                                    )
                             }
-                            .buttonStyle(.plain)
+                            .controlSize(.small)
+                            .buttonStyle(.bordered)
+                            .tint(isSelected ? colors.neonGreen : .secondary)
+                            .fontWeight(isSelected ? .semibold : .regular)
                         }
                     }
-                    .padding(.vertical, 4)
                 }
-                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                .listRowInsets(EdgeInsets(top: 2, leading: 16, bottom: 2, trailing: 16))
                 .listRowBackground(Color.clear)
 
                 if datePreset == .custom {
-                    HStack(spacing: 12) {
+                    HStack(spacing: 10) {
                         Button {
                             activeCustomField = .from
                         } label: {
@@ -93,6 +88,7 @@ struct RideHistoryView: View {
                         }
                         .buttonStyle(.plain)
                     }
+                    .listRowInsets(EdgeInsets(top: 2, leading: 16, bottom: 6, trailing: 16))
                     .listRowBackground(Color.clear)
                 }
             }
@@ -161,17 +157,18 @@ struct RideHistoryView: View {
     }
 
     private func dateChipLabel(_ title: String, date: Date, colors: AppPalette) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 1) {
             Text(title)
-                .font(.caption)
+                .font(.caption2)
                 .foregroundStyle(colors.textSecondary)
             Text(Self.shortDate.string(from: date))
-                .font(.subheadline.weight(.semibold))
+                .font(.subheadline.weight(.medium))
                 .foregroundStyle(colors.textPrimary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(colors.bgCard, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(colors.bgCard, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
     private func selectDatePreset(_ preset: DateFilterPreset) {

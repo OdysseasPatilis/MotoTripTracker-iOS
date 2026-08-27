@@ -54,24 +54,12 @@ struct RideSummaryView: View {
                     }
 
                     if !moments.moments.isEmpty {
-                        Section("Moments") {
+                        Section {
                             ForEach(moments.moments) { moment in
-                                VStack(alignment: .leading, spacing: 4) {
-                                    HStack {
-                                        Text(moment.title)
-                                            .font(.body.weight(.medium))
-                                            .foregroundStyle(colors.textPrimary)
-                                        Spacer()
-                                        Text(moment.value)
-                                            .font(.body.weight(.semibold))
-                                            .foregroundStyle(colors.neonGreen)
-                                    }
-                                    Text(moment.detail)
-                                        .font(.caption)
-                                        .foregroundStyle(colors.textSecondary)
-                                }
-                                .padding(.vertical, 2)
+                                MomentRow(moment: moment, colors: colors)
                             }
+                        } header: {
+                            Text("Moments")
                         }
                     }
                 }
@@ -262,5 +250,39 @@ struct RideSummaryView: View {
                 longitudeDelta: max((maxLng - minLng) * 1.45, 0.01)
             )
         )
+    }
+}
+
+private struct MomentRow: View {
+    let moment: RideMoment
+    let colors: AppPalette
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: moment.systemImage)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(colors.neonGreen)
+                .frame(width: 36, height: 36)
+                .background(colors.neonGreen.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(moment.title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(colors.textPrimary)
+                    Spacer(minLength: 8)
+                    Text(moment.value)
+                        .font(.subheadline.weight(.bold).monospacedDigit())
+                        .foregroundStyle(colors.neonBlue)
+                }
+                Text(moment.detail)
+                    .font(.caption)
+                    .foregroundStyle(colors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.vertical, 4)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(moment.title), \(moment.value), \(moment.detail)")
     }
 }
