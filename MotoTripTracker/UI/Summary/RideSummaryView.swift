@@ -86,7 +86,8 @@ struct RideSummaryView: View {
 
                     Menu {
                         Button {
-                            RideShareHelper.shareCardImage(trip: trip, moments: moments)
+                            let points = app.repository.routePoints(for: trip.id)
+                            RideShareHelper.shareCardImage(trip: trip, moments: moments, points: points)
                         } label: {
                             Label("Share Card", systemImage: "square.and.arrow.up")
                         }

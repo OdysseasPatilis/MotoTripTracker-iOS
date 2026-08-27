@@ -45,7 +45,7 @@ The app is the iOS counterpart of the Android **MotoTripTracker** project, with 
 ### Summary & sharing
 - Stats overview and **Ride Moments** (timed highlights: peak rush, climbs, pauses, cruise windows, twisties — distinct from Stats)
 - Map preview with encoded polyline
-- **Share card** image and **GPX** export
+- **Share card** image (route map + moments) and **GPX** export
 - Open **full route** map with speed/elevation layers, profile chart, and waypoints
 
 ### Full route map
