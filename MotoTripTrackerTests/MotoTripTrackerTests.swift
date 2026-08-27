@@ -164,6 +164,40 @@ struct MotoTripTrackerTests {
         #expect(GpsQuality.poor.barCount == 1)
     }
 
+    @Test func athensRegionPackDecodesAndLooksUpCells() throws {
+        let json = """
+        {
+          "id": "athens",
+          "name": "Greater Athens",
+          "version": 1,
+          "gridScale": 500.0,
+          "bbox": {"south": 37.82, "west": 23.55, "north": 38.15, "east": 23.95},
+          "cells": {"18991_11863": 50, "18992_11863": 70}
+        }
+        """.data(using: .utf8)!
+        let pack = try SpeedLimitRegionPackStore.decode(json)
+
+        let inside = CLLocation(latitude: 37.9838, longitude: 23.7275)
+        let outside = CLLocation(latitude: 40.64, longitude: 22.94) // Thessaloniki
+        #expect(pack.contains(inside))
+        #expect(!pack.contains(outside))
+
+        // 37.9838*500 ≈ 18991.9 → trunc 18991; 23.7275*500 ≈ 11863.75 → trunc 11863
+        #expect(pack.limit(for: inside) == 50)
+        #expect(SpeedLimitRegionPackStore.isInsideBundledRegion(inside, packs: [pack]))
+        #expect(!SpeedLimitRegionPackStore.isInsideBundledRegion(outside, packs: [pack]))
+    }
+
+    @Test func bundledAthensPackIsAvailable() {
+        let packs = SpeedLimitRegionPackStore.bundled
+        #expect(!packs.isEmpty)
+        let athens = packs.first { $0.id == "athens" }
+        #expect(athens != nil)
+        #expect((athens?.cells.count ?? 0) > 1000)
+        let downtown = CLLocation(latitude: 37.9838, longitude: 23.7275)
+        #expect(athens?.contains(downtown) == true)
+    }
+
     @Test func gpxExporterContainsTrackPoints() {
         let trip = Trip(startTime: 1_700_000_000, title: "Test Ride")
         let points = [

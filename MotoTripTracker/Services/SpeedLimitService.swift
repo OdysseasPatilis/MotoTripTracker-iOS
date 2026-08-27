@@ -28,6 +28,7 @@ final class SpeedLimitService {
     private var preferredEndpointIndex = 0
     private var cache: [String: Int?] = [:]
     private var cacheDirty = false
+    private let regionPacks: [SpeedLimitRegionPack]
 
     private let minFetchInterval: TimeInterval = 15
     private let minFetchDistanceMeters: CLLocationDistance = 35
@@ -56,20 +57,30 @@ final class SpeedLimitService {
 
     init(
         session: URLSession = .shared,
-        cacheStore: SpeedLimitCacheStore = SpeedLimitCacheStore()
+        cacheStore: SpeedLimitCacheStore = SpeedLimitCacheStore(),
+        regionPacks: [SpeedLimitRegionPack] = SpeedLimitRegionPackStore.bundled
     ) {
         self.session = session
         self.cacheStore = cacheStore
+        self.regionPacks = regionPacks
         let loaded = cacheStore.load()
         cache = loaded.mapValues { Optional($0) }
         let stored = UserDefaults.standard.object(forKey: manualOverrideKey) as? Int
         if let stored, (30...130).contains(stored) {
             manualOverrideKmh = stored
         }
-        AppLogger.speedLimit.info("Loaded \(loaded.count) cached speed-limit cells")
+        AppLogger.speedLimit.info(
+            "Loaded \(loaded.count) cached speed-limit cells; \(regionPacks.count) region pack(s)"
+        )
     }
 
     func refresh(for location: CLLocation) {
+        // Bundled city packs (e.g. Greater Athens) — offline only, no Overpass.
+        if SpeedLimitRegionPackStore.isInsideBundledRegion(location, packs: regionPacks) {
+            applyBundledRegionLimit(for: location)
+            return
+        }
+
         guard shouldFetch(for: location) else {
             if LogThrottle.shouldLog(key: "speedLimit.throttle", interval: 30) {
                 AppLogger.speedLimit.debug(
@@ -104,6 +115,32 @@ final class SpeedLimitService {
         inFlightTask = Task {
             await fetchLimit(for: location, cacheKey: key)
         }
+    }
+
+    private func applyBundledRegionLimit(for location: CLLocation) {
+        if let hit = SpeedLimitRegionPackStore.limit(for: location, packs: regionPacks) {
+            if autoLimitKmh != hit.kmh {
+                autoLimitKmh = hit.kmh
+                lastUpdated = Date()
+                if LogThrottle.shouldLog(key: "speedLimit.pack.\(hit.pack.id)", interval: 20) {
+                    AppLogger.speedLimit.debug(
+                        "Region pack \(hit.pack.id, privacy: .public) → \(hit.kmh) km/h"
+                    )
+                }
+            }
+            lastFetchLocation = location
+            lastFetchTime = Date()
+            return
+        }
+
+        // Inside pack bbox but no tagged cell nearby — keep last auto limit; never Overpass.
+        if LogThrottle.shouldLog(key: "speedLimit.pack.miss", interval: 30) {
+            AppLogger.speedLimit.debug(
+                "Inside region pack with no cell @ \(AppLogger.coordinate(location.coordinate.latitude, location.coordinate.longitude), privacy: .public)"
+            )
+        }
+        lastFetchLocation = location
+        lastFetchTime = Date()
     }
 
     func clearManualOverride() {

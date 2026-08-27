@@ -7,8 +7,8 @@ import os
 final class LocationService: NSObject, CLLocationManagerDelegate {
     private let manager = CLLocationManager()
 
-    private(set) var authorizationStatus: CLAuthorizationStatus
-    private(set) var isLocationEnabled: Bool
+    private(set) var authorizationStatus: CLAuthorizationStatus = .notDetermined
+    private(set) var isLocationEnabled = false
     private(set) var lastLocation: CLLocation?
 
     var onLocationUpdate: ((CLLocation) -> Void)?
@@ -16,9 +16,12 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
     private var isUpdating = false
 
     override init() {
-        authorizationStatus = manager.authorizationStatus
-        isLocationEnabled = CLLocationManager.locationServicesEnabled()
         super.init()
+        // Don't call locationServicesEnabled() — Apple warns it can block the main thread.
+        // Prefer locationManagerDidChangeAuthorization: + authorizationStatus.
+        let status = manager.authorizationStatus
+        authorizationStatus = status
+        isLocationEnabled = Self.isAuthorized(status)
         manager.delegate = self
         manager.desiredAccuracy = kCLLocationAccuracyBest
         manager.distanceFilter = kCLDistanceFilterNone
@@ -28,8 +31,10 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
     }
 
     func requestAuthorization() {
-        AppLogger.location.info("Requesting location authorization (current=\(String(describing: self.manager.authorizationStatus)))")
-        switch manager.authorizationStatus {
+        AppLogger.location.info(
+            "Requesting location authorization (current=\(String(describing: self.authorizationStatus)))"
+        )
+        switch authorizationStatus {
         case .notDetermined:
             manager.requestWhenInUseAuthorization()
         case .authorizedWhenInUse:
@@ -42,13 +47,15 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
     func startUpdating() {
         guard !isUpdating else {
             configureBackgroundUpdatesIfAllowed()
+            startIfAuthorized()
             return
         }
         isUpdating = true
-        refreshLocationEnabled()
         configureBackgroundUpdatesIfAllowed()
-        manager.startUpdatingLocation()
-        AppLogger.location.notice("Location updates started (background=\(self.manager.allowsBackgroundLocationUpdates))")
+        startIfAuthorized()
+        AppLogger.location.notice(
+            "Location updates requested (authorized=\(self.isLocationEnabled), background=\(self.manager.allowsBackgroundLocationUpdates))"
+        )
     }
 
     func stopUpdating() {
@@ -60,13 +67,21 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
     }
 
     func refreshLocationEnabled() {
-        isLocationEnabled = CLLocationManager.locationServicesEnabled()
-            && (authorizationStatus == .authorizedAlways || authorizationStatus == .authorizedWhenInUse)
+        isLocationEnabled = Self.isAuthorized(authorizationStatus)
+    }
+
+    private func startIfAuthorized() {
+        guard isUpdating, isLocationEnabled else { return }
+        manager.startUpdatingLocation()
     }
 
     private func configureBackgroundUpdatesIfAllowed() {
         // Setting this without Always authorization crashes.
         manager.allowsBackgroundLocationUpdates = (authorizationStatus == .authorizedAlways)
+    }
+
+    private static func isAuthorized(_ status: CLAuthorizationStatus) -> Bool {
+        status == .authorizedAlways || status == .authorizedWhenInUse
     }
 
     nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
@@ -76,12 +91,10 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
             self.authorizationStatus = status
             self.refreshLocationEnabled()
             self.configureBackgroundUpdatesIfAllowed()
-            if manager.authorizationStatus == .authorizedWhenInUse {
+            if status == .authorizedWhenInUse {
                 manager.requestAlwaysAuthorization()
             }
-            if self.isLocationEnabled, self.isUpdating {
-                manager.startUpdatingLocation()
-            }
+            self.startIfAuthorized()
         }
     }
 

@@ -18,10 +18,12 @@ The app is the iOS counterpart of the Android **MotoTripTracker** project, with 
 
 ### Speed limits (OpenStreetMap / Overpass)
 - Automatic `maxspeed` lookup near your position
+- **Bundled Greater Athens pack** (~4k grid cells) for offline limits inside the metro area; Overpass only outside that region
 - Manual override by tapping the limit sign (30–130 km/h cycle); long-press clears override
 - **Over-limit warning**: sign flashes and a translucent full-screen flash overlays the dashboard
 - Resilient lookup: multiple Overpass mirrors, 30 m / 60 m radii, highway priority, disk grid cache with neighbor fallback
 - Manual limit preference is persisted across launches
+- Rebuild Athens pack: `python3 Scripts/build_athens_speed_limit_pack.py`
 
 ### Physics & ride quality
 - **Longitudinal G** from GPS speed deltas (clamped), resistant to handlebar vibration
@@ -147,12 +149,13 @@ flowchart TB
 
 ### Speed limit pipeline
 
-1. Throttle by distance (~35 m) and time (~15 s)
-2. Check **grid cache** (and neighboring cells offline)
-3. Query Overpass mirrors with expanding radius
-4. Parse OSM tags (`OSMMaxSpeedParser`, including country defaults like `GR:urban`)
-5. Prefer higher-priority highway types when multiple ways match
-6. Apply auto limit unless a manual override is set
+1. Prefer **bundled region pack** (Greater Athens) when inside its bbox — no network
+2. Otherwise throttle by distance (~35 m) and time (~15 s)
+3. Check **grid cache** (and neighboring cells offline)
+4. Query Overpass mirrors with expanding radius
+5. Parse OSM tags (`OSMMaxSpeedParser`, including country defaults like `GR:urban`)
+6. Prefer higher-priority highway types when multiple ways match
+7. Apply auto limit unless a manual override is set
 
 ### Logging
 
