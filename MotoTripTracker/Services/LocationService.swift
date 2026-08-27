@@ -13,7 +13,7 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
 
     var onLocationUpdate: ((CLLocation) -> Void)?
 
-    private var isCollecting = false
+    private var isUpdating = false
 
     override init() {
         authorizationStatus = manager.authorizationStatus
@@ -40,7 +40,11 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
     }
 
     func startUpdating() {
-        isCollecting = true
+        guard !isUpdating else {
+            configureBackgroundUpdatesIfAllowed()
+            return
+        }
+        isUpdating = true
         refreshLocationEnabled()
         configureBackgroundUpdatesIfAllowed()
         manager.startUpdatingLocation()
@@ -48,7 +52,8 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
     }
 
     func stopUpdating() {
-        isCollecting = false
+        guard isUpdating else { return }
+        isUpdating = false
         manager.allowsBackgroundLocationUpdates = false
         manager.stopUpdatingLocation()
         AppLogger.location.notice("Location updates stopped")
@@ -74,13 +79,16 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
             if manager.authorizationStatus == .authorizedWhenInUse {
                 manager.requestAlwaysAuthorization()
             }
+            if self.isLocationEnabled, self.isUpdating {
+                manager.startUpdatingLocation()
+            }
         }
     }
 
     nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let location = locations.last else { return }
         Task { @MainActor in
-            guard self.isCollecting else { return }
+            guard self.isUpdating else { return }
             self.lastLocation = location
             if LogThrottle.shouldLog(key: "location.update", interval: 30) {
                 AppLogger.location.debug(

@@ -1,3 +1,4 @@
+import CoreLocation
 import SwiftUI
 import UIKit
 import os
@@ -5,13 +6,25 @@ import os
 struct RideTrackerView: View {
     @Environment(AppContainer.self) private var app
     @Environment(ThemeStore.self) private var theme
-    @State private var clock = RideFormatters.currentClock()
     @State private var batteryLevel = BatteryReader.currentLevel()
     @State private var discardBanner: String?
 
     private static let selectableSpeedLimits = [30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130]
 
     private var speedLimitKmh: Int { app.speedLimitService.effectiveLimitKmh }
+
+    /// Prefer live Core Location accuracy so the toolbar updates even when idle.
+    private var dashboardGpsAccuracy: Double? {
+        let accuracy = app.locationService.lastLocation?.horizontalAccuracy
+        guard let accuracy, accuracy >= 0 else {
+            return app.tripManager.sessionState.stats.gpsAccuracyMeters
+        }
+        return accuracy
+    }
+
+    private var dashboardGpsQuality: GpsQuality {
+        GpsQuality.fromAccuracyMeters(dashboardGpsAccuracy)
+    }
 
     var body: some View {
         let session = app.tripManager.sessionState
@@ -53,12 +66,15 @@ struct RideTrackerView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
-                HStack(spacing: 8) {
-                    Text(clock)
-                        .font(.subheadline.monospacedDigit())
-                        .foregroundStyle(colors.textSecondary)
+                HStack(spacing: 12) {
+                    GpsSignalIndicator(
+                        quality: dashboardGpsQuality,
+                        accuracyMeters: dashboardGpsAccuracy,
+                        colors: colors
+                    )
                     BatteryIndicator(level: batteryLevel, colors: colors)
                 }
+                .fixedSize()
             }
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button {
@@ -80,8 +96,10 @@ struct RideTrackerView: View {
             }
         }
         .onAppear {
+            batteryLevel = BatteryReader.currentLevel()
             app.locationService.requestAuthorization()
             app.locationService.refreshLocationEnabled()
+            app.locationService.startUpdating()
             UIApplication.shared.isIdleTimerDisabled = true
             if let location = app.locationService.lastLocation {
                 app.speedLimitService.refresh(for: location)
@@ -89,23 +107,20 @@ struct RideTrackerView: View {
         }
         .onDisappear {
             if !session.isActive {
+                app.locationService.stopUpdating()
                 UIApplication.shared.isIdleTimerDisabled = false
             }
         }
-        .task {
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(10))
-                clock = RideFormatters.currentClock()
-                batteryLevel = BatteryReader.currentLevel()
-            }
+        .onReceive(NotificationCenter.default.publisher(for: UIDevice.batteryLevelDidChangeNotification)) { _ in
+            batteryLevel = BatteryReader.currentLevel()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIDevice.batteryStateDidChangeNotification)) { _ in
+            batteryLevel = BatteryReader.currentLevel()
         }
     }
 
     private func speedometerCard(stats: TripStats, colors: AppPalette) -> some View {
         VStack(spacing: 14) {
-            if stats.gpsQuality != .unknown || stats.gpsAccuracyMeters != nil {
-                gpsStatusRow(stats: stats, colors: colors)
-            }
             SpeedometerArc(
                 speedKmh: stats.speed,
                 maxSpeedKmh: max(stats.maxSpeed, 260),
@@ -125,28 +140,6 @@ struct RideTrackerView: View {
         .padding(.horizontal, 20)
         .frame(maxWidth: .infinity)
         .background(colors.bgCard, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-    }
-
-    private func gpsStatusRow(stats: TripStats, colors: AppPalette) -> some View {
-        let tint: Color = {
-            switch stats.gpsQuality {
-            case .good: colors.neonGreen
-            case .fair: colors.routeAmber
-            case .poor: colors.neonRed
-            case .unknown: colors.textMuted
-            }
-        }()
-        let title: String = {
-            if let meters = stats.gpsAccuracyMeters {
-                return "\(stats.gpsQuality.label) ±\(Int(meters))m"
-            }
-            return stats.gpsQuality.label
-        }()
-
-        return Label(title, systemImage: "location.fill")
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(tint)
-            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func cycleSpeedLimit() {
@@ -534,6 +527,68 @@ struct GForceBar: View {
     }
 }
 
+struct GpsSignalIndicator: View {
+    let quality: GpsQuality
+    var accuracyMeters: Double?
+    let colors: AppPalette
+
+    private var tint: Color {
+        switch quality {
+        case .excellent, .good: colors.neonGreen
+        case .fair: colors.routeAmber
+        case .poor: colors.neonRed
+        case .unknown: colors.textMuted
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "location.fill")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(tint)
+
+            GpsBarsIcon(filledBars: quality.barCount, tint: tint)
+
+            Text(statusText)
+                .font(.caption2.weight(.semibold).monospacedDigit())
+                .foregroundStyle(tint)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityText)
+    }
+
+    /// Accuracy radius in meters (how precise the fix is), not distance ridden.
+    private var statusText: String {
+        if let meters = accuracyMeters, meters > 0 {
+            return "±\(Int(meters.rounded()))m"
+        }
+        return "GPS"
+    }
+
+    private var accessibilityText: String {
+        if let meters = accuracyMeters, meters > 0 {
+            return "GPS \(quality.shortLabel), accuracy within \(Int(meters.rounded())) meters"
+        }
+        return "GPS \(quality.shortLabel)"
+    }
+}
+
+private struct GpsBarsIcon: View {
+    let filledBars: Int
+    let tint: Color
+
+    var body: some View {
+        HStack(alignment: .bottom, spacing: 1.5) {
+            ForEach(0..<4, id: \.self) { index in
+                Capsule()
+                    .fill(index < filledBars ? tint : tint.opacity(0.25))
+                    .frame(width: 2.5, height: 5 + CGFloat(index) * 2.5)
+            }
+        }
+        .frame(height: 13, alignment: .bottom)
+    }
+}
+
 struct BatteryIndicator: View {
     let level: Int
     let colors: AppPalette
@@ -550,7 +605,7 @@ struct BatteryIndicator: View {
                 .font(.caption)
                 .foregroundStyle(fillColor)
             Text("\(level)%")
-                .font(.caption2)
+                .font(.caption2.weight(.semibold).monospacedDigit())
                 .foregroundStyle(colors.batteryLabel)
         }
         .accessibilityLabel("Battery \(level) percent")
@@ -572,6 +627,7 @@ enum BatteryReader {
         UIDevice.current.isBatteryMonitoringEnabled = true
         let level = UIDevice.current.batteryLevel
         if level < 0 { return 100 }
-        return Int(level * 100)
+        // Round to nearest percent (truncation made 48.6% show as 48, etc.).
+        return Int((Double(level) * 100).rounded())
     }
 }

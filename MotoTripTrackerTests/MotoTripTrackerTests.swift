@@ -153,10 +153,15 @@ struct MotoTripTrackerTests {
     }
 
     @Test func gpsQualityBucketsAccuracy() {
-        #expect(GpsQuality.fromAccuracyMeters(5) == .good)
-        #expect(GpsQuality.fromAccuracyMeters(12) == .fair)
-        #expect(GpsQuality.fromAccuracyMeters(20) == .poor)
+        #expect(GpsQuality.fromAccuracyMeters(4) == .excellent)
+        #expect(GpsQuality.fromAccuracyMeters(8) == .good)
+        #expect(GpsQuality.fromAccuracyMeters(15) == .fair)
+        #expect(GpsQuality.fromAccuracyMeters(25) == .poor)
         #expect(GpsQuality.fromAccuracyMeters(nil) == .unknown)
+        #expect(GpsQuality.excellent.barCount == 4)
+        #expect(GpsQuality.good.barCount == 3)
+        #expect(GpsQuality.fair.barCount == 2)
+        #expect(GpsQuality.poor.barCount == 1)
     }
 
     @Test func gpxExporterContainsTrackPoints() {

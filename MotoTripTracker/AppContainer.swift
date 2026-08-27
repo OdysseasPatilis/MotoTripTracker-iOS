@@ -48,7 +48,7 @@ final class AppContainer {
     func pauseRide() {
         AppLogger.app.notice("Pause ride requested")
         tripManager.pauseTrip()
-        locationService.stopUpdating()
+        // Keep GPS running so the dashboard signal indicator stays live.
     }
 
     func resumeRide() {
@@ -65,7 +65,7 @@ final class AppContainer {
     func stopRide() -> Bool {
         AppLogger.app.notice("Stop ride requested")
         let saved = tripManager.stopTrip()
-        locationService.stopUpdating()
+        // Keep GPS running while the tracker screen is visible.
         return saved
     }
 }
