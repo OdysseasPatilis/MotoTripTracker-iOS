@@ -170,4 +170,26 @@ struct MotoTripTrackerTests {
         #expect(gpx.contains("Test Ride"))
         #expect(gpx.contains("37.98"))
     }
+
+    @Test func leaderboardRanksBySpeedDescending() {
+        let slow = Trip(startTime: 1, maxSpeed: 100)
+        let fast = Trip(startTime: 2, maxSpeed: 150)
+        let mid = Trip(startTime: 3, maxSpeed: 120)
+        let zero = Trip(startTime: 4, maxSpeed: 0)
+        let ranked = LeaderboardRanking.entries(
+            from: [slow, fast, mid, zero],
+            category: .speed
+        )
+        #expect(ranked.map(\.trip.maxSpeed) == [150, 120, 100])
+        #expect(ranked.map(\.rank) == [1, 2, 3])
+    }
+
+    @Test func leaderboardRanksByDistanceAndTurns() {
+        let a = Trip(startTime: 1, distanceMeters: 5_000, cornerCount: 3)
+        let b = Trip(startTime: 2, distanceMeters: 12_000, cornerCount: 10)
+        let distance = LeaderboardRanking.entries(from: [a, b], category: .distance)
+        let turns = LeaderboardRanking.entries(from: [a, b], category: .turns)
+        #expect(distance.first?.trip.distanceKm == 12)
+        #expect(turns.first?.trip.cornerCount == 10)
+    }
 }

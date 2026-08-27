@@ -68,6 +68,11 @@ struct RideTrackerView: View {
                 }
                 .accessibilityLabel("Switch to \(theme.mode.toggleLabel) theme")
 
+                NavigationLink(value: AppRoute.leaderboard) {
+                    Image(systemName: "trophy")
+                }
+                .accessibilityLabel("Leaderboard")
+
                 NavigationLink(value: AppRoute.history) {
                     Image(systemName: "list.bullet")
                 }

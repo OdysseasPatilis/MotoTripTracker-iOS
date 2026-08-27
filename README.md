@@ -35,6 +35,11 @@ The app is the iOS counterpart of the Android **MotoTripTracker** project, with 
 - Rename rides and mark favorites (including swipe actions)
 - Empty states via `ContentUnavailableView`
 
+### Personal leaderboard
+- Rank your own rides by **Speed** (max km/h), **Distance** (km), or **Turns** (corner count)
+- Segmented categories; tap a row to open the same ride **summary** as History
+- Gold / silver / bronze badges for the top three ranks
+
 ### Summary & sharing
 - Stats overview and **Ride Moments** (top speed, longest stop, biggest climb, lean G, corners, …)
 - Map preview with encoded polyline
@@ -168,6 +173,7 @@ MotoTripTracker/
 │   ├── Navigation/
 │   ├── Tracker/
 │   ├── History/
+│   ├── Leaderboard/
 │   ├── Summary/
 │   ├── Route/
 │   └── Theme/

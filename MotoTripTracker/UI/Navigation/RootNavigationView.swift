@@ -2,6 +2,7 @@ import SwiftUI
 
 enum AppRoute: Hashable {
     case history
+    case leaderboard
     case summary(UUID)
     case fullRoute(UUID)
 }
@@ -16,6 +17,8 @@ struct RootNavigationView: View {
                     switch route {
                     case .history:
                         RideHistoryView()
+                    case .leaderboard:
+                        RideLeaderboardView()
                     case .summary(let id):
                         RideSummaryView(tripID: id)
                     case .fullRoute(let id):
