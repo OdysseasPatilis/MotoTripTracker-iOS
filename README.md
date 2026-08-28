@@ -19,6 +19,12 @@ The app is the iOS counterpart of the Android **MotoTripTracker** project, with 
 - **GPS quality** and **battery** as floating chips on the map; **Options** menu (History, Leaderboard, theme) hidden while riding so it does not overlap the map compass
 - Short rides under **50 m** are discarded automatically
 
+### Live Activities & Home Screen widgets
+- **Live Activity** on Lock Screen and Dynamic Island while a ride is active: speed, limit, distance, moving time, over-limit tint, optional nav ETA summary
+- Starts / pauses / ends with the ride lifecycle; updates throttled to ~1 Hz
+- **Last Ride** and **This Week** Home Screen widgets (small + medium), fed via App Group snapshot when trips are saved
+- Requires Live Activities enabled in Settings; widgets appear after a long-press on the Home Screen → Widgets → MotoTripTracker
+
 ### Navigation (destination & route)
 - **Set destination** via search sheet (`MKLocalSearchCompleter` autocomplete)
 - **Driving route** computed with `MKDirections` and drawn on the map in blue
@@ -190,7 +196,7 @@ MotoTripTracker/
 ├── AppContainer.swift            # Composition / DI
 ├── Domain/                       # Trip loop & algorithms
 ├── Data/                         # SwiftData models, repository, waypoints
-├── Services/                     # Location, Overpass speed limits, navigation (MKDirections)
+├── Services/                     # Location, Overpass speed limits, navigation, Live Activity / widget publishers
 ├── UI/
 │   ├── Navigation/
 │   ├── Tracker/                  # RideTrackerView, LiveRideMapView, DestinationSearchView
@@ -198,8 +204,11 @@ MotoTripTracker/
 │   ├── Leaderboard/
 │   ├── Summary/
 │   ├── Route/
+│   ├── Splash/
 │   └── Theme/
 └── Utilities/                    # Logging, GPX, share, formatters, polyline
+MotoTripTrackerShared/            # App Group models shared with the widget (ActivityAttributes, snapshot)
+MotoTripTrackerWidgets/           # WidgetKit extension (Live Activity UI + Home Screen widgets)
 MotoTripTrackerTests/             # Unit tests (filters, detectors, parsers, …)
 MotoTripTrackerUITests/           # UI test targets
 ```
@@ -215,6 +224,7 @@ MotoTripTrackerUITests/           # UI test targets
 | Location | Core Location (background mode: `location`) |
 | Speed limits | Overpass API (OpenStreetMap) — no Google Maps API key |
 | Maps | Apple MapKit (system; no Maps API key required for native display) |
+| Widgets / Live Activities | WidgetKit + ActivityKit (App Group `group.com.odys.MotoTripTracker`) |
 | Concurrency | `@MainActor`, `Task` / `async` for network & waypoint work |
 | Observation | `@Observable` for session, theme, speed-limit state |
 
