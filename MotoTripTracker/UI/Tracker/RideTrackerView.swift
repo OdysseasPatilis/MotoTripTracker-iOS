@@ -397,118 +397,114 @@ struct SpeedometerArc: View {
     var body: some View {
         ZStack {
             Canvas { context, size in
-                let strokeWidth: CGFloat = 14
-                let padding = strokeWidth / 2 + 4
-                let rect = CGRect(
-                    x: padding,
-                    y: padding,
-                    width: size.width - padding * 2,
-                    height: size.height - padding * 2
-                )
-                let startAngle = Angle.degrees(150)
+                let center = CGPoint(x: size.width / 2, y: size.height / 2)
+                let padding: CGFloat = 20
+                let radius = (min(size.width, size.height) - padding * 2) / 2
+                let startAngle = Angle.degrees(135)
+                let sweep = 270.0
+                let mainWidth: CGFloat = 9
 
-                var track = Path()
-                track.addArc(
-                    center: CGPoint(x: size.width / 2, y: size.height / 2),
-                    radius: rect.width / 2,
-                    startAngle: startAngle,
-                    endAngle: startAngle + Angle.degrees(240),
-                    clockwise: false
-                )
+                func arc(from startFraction: Double, to endFraction: Double) -> Path {
+                    var path = Path()
+                    path.addArc(
+                        center: center,
+                        radius: radius,
+                        startAngle: startAngle + Angle.degrees(sweep * startFraction),
+                        endAngle: startAngle + Angle.degrees(sweep * endFraction),
+                        clockwise: false
+                    )
+                    return path
+                }
+
+                // Track
                 context.stroke(
-                    track,
+                    arc(from: 0, to: 1),
                     with: .color(colors.arcTrack),
-                    style: StrokeStyle(lineWidth: strokeWidth, lineCap: .round)
+                    style: StrokeStyle(lineWidth: 4, lineCap: .round)
                 )
 
                 if speedPercent > 0 {
-                    if !isOverLimit {
-                        var arc = Path()
-                        arc.addArc(
-                            center: CGPoint(x: size.width / 2, y: size.height / 2),
-                            radius: rect.width / 2,
-                            startAngle: startAngle,
-                            endAngle: startAngle + Angle.degrees(240 * speedPercent),
-                            clockwise: false
-                        )
-                        context.stroke(
-                            arc,
-                            with: .linearGradient(
-                                Gradient(colors: [colors.neonGreen, colors.neonBlue]),
-                                startPoint: .zero,
-                                endPoint: CGPoint(x: size.width, y: size.height)
-                            ),
-                            style: StrokeStyle(lineWidth: strokeWidth, lineCap: .round)
-                        )
-                    } else {
-                        var teal = Path()
-                        teal.addArc(
-                            center: CGPoint(x: size.width / 2, y: size.height / 2),
-                            radius: rect.width / 2,
-                            startAngle: startAngle,
-                            endAngle: startAngle + Angle.degrees(240 * limitPercent),
-                            clockwise: false
-                        )
-                        context.stroke(
-                            teal,
-                            with: .color(colors.neonGreen.opacity(0.35)),
-                            style: StrokeStyle(lineWidth: strokeWidth, lineCap: .round)
-                        )
+                    let accent = isOverLimit ? colors.stopRed : colors.neonGreen
+                    let progress = arc(from: 0, to: speedPercent)
 
-                        var red = Path()
-                        red.addArc(
-                            center: CGPoint(x: size.width / 2, y: size.height / 2),
-                            radius: rect.width / 2,
-                            startAngle: startAngle + Angle.degrees(240 * limitPercent),
-                            endAngle: startAngle + Angle.degrees(240 * speedPercent),
-                            clockwise: false
-                        )
-                        context.stroke(
-                            red,
-                            with: .color(colors.stopRed),
-                            style: StrokeStyle(lineWidth: strokeWidth, lineCap: .round)
+                    // Neon glow underlay
+                    context.drawLayer { layer in
+                        layer.addFilter(.blur(radius: 8))
+                        layer.stroke(
+                            progress,
+                            with: .color(accent.opacity(0.55)),
+                            style: StrokeStyle(lineWidth: 16, lineCap: .round)
                         )
                     }
 
-                    let angleRad = (150 + 240 * speedPercent) * .pi / 180
-                    let radius = rect.width / 2
-                    let cx = size.width / 2 + radius * cos(angleRad)
-                    let cy = size.height / 2 + radius * sin(angleRad)
-                    let dotColor = isOverLimit ? colors.stopRed : colors.neonGreen
-                    context.fill(
-                        Path(ellipseIn: CGRect(x: cx - 7, y: cy - 7, width: 14, height: 14)),
-                        with: .color(dotColor)
-                    )
+                    // Core arc — green up to the limit, red beyond it
+                    if !isOverLimit {
+                        context.stroke(
+                            progress,
+                            with: .color(colors.neonGreen),
+                            style: StrokeStyle(lineWidth: mainWidth, lineCap: .round)
+                        )
+                    } else {
+                        context.stroke(
+                            arc(from: 0, to: limitPercent),
+                            with: .color(colors.neonGreen.opacity(0.6)),
+                            style: StrokeStyle(lineWidth: mainWidth, lineCap: .round)
+                        )
+                        context.stroke(
+                            arc(from: limitPercent, to: speedPercent),
+                            with: .color(colors.stopRed),
+                            style: StrokeStyle(lineWidth: mainWidth, lineCap: .round)
+                        )
+                    }
                 }
+
+                // Speed limit notch on the ring
+                let limitAngle = (135 + sweep * limitPercent) * .pi / 180
+                let notchInner = radius - 9
+                let notchOuter = radius + 9
+                var notch = Path()
+                notch.move(to: CGPoint(
+                    x: center.x + notchInner * cos(limitAngle),
+                    y: center.y + notchInner * sin(limitAngle)
+                ))
+                notch.addLine(to: CGPoint(
+                    x: center.x + notchOuter * cos(limitAngle),
+                    y: center.y + notchOuter * sin(limitAngle)
+                ))
+                context.stroke(
+                    notch,
+                    with: .color(colors.textPrimary.opacity(0.9)),
+                    style: StrokeStyle(lineWidth: 2.5, lineCap: .round)
+                )
             }
             .frame(width: 260, height: 260)
 
-            VStack(spacing: 0) {
+            VStack(spacing: 6) {
+                SpeedLimitSign(
+                    limitKmh: Int(speedLimitKmh),
+                    isOverLimit: isOverLimit,
+                    isAutoLimit: isAutoLimit
+                )
+                .onTapGesture {
+                    onCycleSpeedLimit?()
+                }
+                .onLongPressGesture(minimumDuration: 0.5) {
+                    onClearManualOverride?()
+                }
+                .accessibilityLabel("Speed limit \(Int(speedLimitKmh)) kilometers per hour")
+                .accessibilityHint("Tap to set manually, long press to use road limit from map data")
+                .accessibilityAddTraits(.isButton)
+
                 Text("\(Int(speedKmh))")
-                    .font(.system(size: 72, weight: .bold, design: .rounded))
+                    .font(.system(size: 64, weight: .bold, design: .rounded))
                     .foregroundStyle(isOverLimit ? colors.stopRed : colors.textPrimary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+
                 Text("km/h")
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(colors.textSecondary)
             }
-
-            SpeedLimitSign(
-                limitKmh: Int(speedLimitKmh),
-                isOverLimit: isOverLimit,
-                isAutoLimit: isAutoLimit
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .padding(.top, 8)
-            .padding(.leading, 4)
-            .onTapGesture {
-                onCycleSpeedLimit?()
-            }
-            .onLongPressGesture(minimumDuration: 0.5) {
-                onClearManualOverride?()
-            }
-            .accessibilityLabel("Speed limit \(Int(speedLimitKmh)) kilometers per hour")
-            .accessibilityHint("Tap to set manually, long press to use road limit from map data")
-            .accessibilityAddTraits(.isButton)
         }
         .frame(width: 260, height: 260)
         .animation(.easeInOut(duration: 0.35), value: speedKmh)
@@ -589,14 +585,6 @@ struct SpeedLimitSign: View {
                         .lineLimit(1)
                 }
                 .frame(width: 54, height: 54)
-
-                if isAutoLimit {
-                    Circle()
-                        .fill(Color(hex: 0x00E5A0))
-                        .frame(width: 8, height: 8)
-                        .overlay(Circle().stroke(Color.white, lineWidth: 1))
-                        .offset(x: 2, y: 2)
-                }
             }
         }
     }
