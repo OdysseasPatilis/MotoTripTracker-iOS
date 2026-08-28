@@ -1,3 +1,4 @@
+import CoreLocation
 import Foundation
 import SwiftData
 import os
@@ -10,6 +11,7 @@ final class AppContainer {
     let tripManager: TripManager
     let locationService: LocationService
     let speedLimitService: SpeedLimitService
+    let navigationService: NavigationService
     let theme: ThemeStore
 
     init(inMemory: Bool = false) {
@@ -24,11 +26,13 @@ final class AppContainer {
         self.tripManager = TripManager(repository: repository)
         self.locationService = LocationService()
         self.speedLimitService = speedLimitService
+        self.navigationService = NavigationService()
         self.theme = ThemeStore()
 
-        locationService.onLocationUpdate = { [weak tripManager, weak speedLimitService] location in
+        locationService.onLocationUpdate = { [weak tripManager, weak speedLimitService, weak navigationService] location in
             tripManager?.onLocationUpdate(location)
             speedLimitService?.refresh(for: location)
+            navigationService?.updateOrigin(location.coordinate)
         }
 
         AppLogger.app.info("AppContainer ready (SwiftData + services wired)")

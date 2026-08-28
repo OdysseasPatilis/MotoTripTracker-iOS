@@ -8,6 +8,7 @@ struct RideTrackerView: View {
     @Environment(ThemeStore.self) private var theme
     @State private var batteryLevel = BatteryReader.currentLevel()
     @State private var discardBanner: String?
+    @State private var showDestinationSearch = false
 
     private static let selectableSpeedLimits = [30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130]
 
@@ -31,15 +32,38 @@ struct RideTrackerView: View {
         let stats = session.stats
         let colors = theme.palette
         let isOverLimit = session.isActive && !session.isPaused && stats.speed > Double(speedLimitKmh)
+        // While actively riding the map rotates and shows its compass at the top-right,
+        // so the Options menu (same corner) is hidden to avoid overlap.
+        let isRiding = session.isActive && !session.isPaused
 
-        ScrollView {
-            VStack(spacing: 20) {
-                speedometerCard(stats: stats, colors: colors)
-                statsGrid(stats: stats, colors: colors)
+        GeometryReader { geo in
+            VStack(spacing: 0) {
+                LiveRideMapView()
+                    .frame(height: geo.size.height * 0.46)
+                    .overlay(alignment: .topLeading) {
+                        topLeftHUD(colors: colors)
+                    }
+                    .overlay(alignment: .topTrailing) {
+                        if !isRiding {
+                            optionsMenu(colors: colors)
+                        }
+                    }
+                    .overlay(alignment: .bottom) {
+                        navOverlay(colors: colors)
+                    }
+                    .clipped()
+
+                ScrollView {
+                    VStack(spacing: 20) {
+                        speedometerCard(stats: stats, colors: colors)
+                        statsGrid(stats: stats, colors: colors)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 16)
+                    .padding(.bottom, 24)
+                }
+                .background(colors.bgDeep)
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
-            .padding(.bottom, 24)
         }
         .background(colors.bgDeep.ignoresSafeArea())
         .safeAreaInset(edge: .bottom) {
@@ -62,38 +86,9 @@ struct RideTrackerView: View {
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
-        .navigationTitle("Ride")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                HStack(spacing: 12) {
-                    GpsSignalIndicator(
-                        quality: dashboardGpsQuality,
-                        accuracyMeters: dashboardGpsAccuracy,
-                        colors: colors
-                    )
-                    BatteryIndicator(level: batteryLevel, colors: colors)
-                }
-                .fixedSize()
-            }
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                Button {
-                    theme.toggle()
-                } label: {
-                    Image(systemName: theme.mode.toggleSymbol)
-                }
-                .accessibilityLabel("Switch to \(theme.mode.toggleLabel) theme")
-
-                NavigationLink(value: AppRoute.leaderboard) {
-                    Image(systemName: "trophy")
-                }
-                .accessibilityLabel("Leaderboard")
-
-                NavigationLink(value: AppRoute.history) {
-                    Image(systemName: "list.bullet")
-                }
-                .accessibilityLabel("Ride history")
-            }
+        .toolbar(.hidden, for: .navigationBar)
+        .sheet(isPresented: $showDestinationSearch) {
+            DestinationSearchView()
         }
         .onAppear {
             batteryLevel = BatteryReader.currentLevel()
@@ -117,6 +112,118 @@ struct RideTrackerView: View {
         .onReceive(NotificationCenter.default.publisher(for: UIDevice.batteryStateDidChangeNotification)) { _ in
             batteryLevel = BatteryReader.currentLevel()
         }
+    }
+
+    private func topLeftHUD(colors: AppPalette) -> some View {
+        HStack(spacing: 10) {
+            GpsSignalIndicator(
+                quality: dashboardGpsQuality,
+                accuracyMeters: dashboardGpsAccuracy,
+                colors: colors
+            )
+            BatteryIndicator(level: batteryLevel, colors: colors)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.ultraThinMaterial, in: Capsule())
+        .padding(.leading, 12)
+        .padding(.top, 12)
+    }
+
+    private func optionsMenu(colors: AppPalette) -> some View {
+        Menu {
+            NavigationLink(value: AppRoute.history) {
+                Label("Ride History", systemImage: "list.bullet")
+            }
+            NavigationLink(value: AppRoute.leaderboard) {
+                Label("Leaderboard", systemImage: "trophy")
+            }
+            Divider()
+            Button {
+                theme.toggle()
+            } label: {
+                Label("\(theme.mode.toggleLabel) Mode", systemImage: theme.mode.toggleSymbol)
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.headline.weight(.bold))
+                .foregroundStyle(colors.textPrimary)
+                .frame(width: 42, height: 42)
+                .background(.ultraThinMaterial, in: Circle())
+        }
+        .padding(.trailing, 12)
+        .padding(.top, 12)
+        .accessibilityLabel("Options")
+    }
+
+    @ViewBuilder
+    private func navOverlay(colors: AppPalette) -> some View {
+        let nav = app.navigationService
+        if nav.hasDestination {
+            activeRouteBanner(nav: nav, colors: colors)
+        } else {
+            Button {
+                showDestinationSearch = true
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                    Text("Set destination")
+                    Spacer()
+                }
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(colors.textSecondary)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(.ultraThinMaterial, in: Capsule())
+            }
+            .padding(.horizontal, 12)
+            .padding(.bottom, 12)
+        }
+    }
+
+    private func activeRouteBanner(nav: NavigationService, colors: AppPalette) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "arrow.triangle.turn.up.right.diamond.fill")
+                .font(.title2)
+                .foregroundStyle(colors.neonBlue)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(nav.destinationName ?? "Destination")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(colors.textPrimary)
+                    .lineLimit(1)
+                Text(nav.isRouting ? "Calculating route…" : nav.summaryText)
+                    .font(.caption)
+                    .foregroundStyle(colors.textSecondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 8)
+
+            Button {
+                nav.openInAppleMaps()
+            } label: {
+                Image(systemName: "location.north.line.fill")
+                    .font(.headline)
+                    .foregroundStyle(colors.neonGreen)
+                    .frame(width: 36, height: 36)
+            }
+            .accessibilityLabel("Open in Apple Maps")
+
+            Button {
+                nav.clear()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.title3)
+                    .foregroundStyle(colors.textSecondary)
+            }
+            .accessibilityLabel("Clear destination")
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .padding(.horizontal, 12)
+        .padding(.bottom, 12)
     }
 
     private func speedometerCard(stats: TripStats, colors: AppPalette) -> some View {

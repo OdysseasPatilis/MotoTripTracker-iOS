@@ -11,6 +11,10 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
     private(set) var isLocationEnabled = false
     private(set) var lastLocation: CLLocation?
 
+    /// Monotonic counter bumped on every fix. `CLLocation` is not `Equatable`, so views
+    /// observe this instead to react to new locations (e.g. to drive a follow camera).
+    private(set) var updateTick: Int = 0
+
     var onLocationUpdate: ((CLLocation) -> Void)?
 
     private var isUpdating = false
@@ -103,6 +107,7 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
         Task { @MainActor in
             guard self.isUpdating else { return }
             self.lastLocation = location
+            self.updateTick &+= 1
             if LogThrottle.shouldLog(key: "location.update", interval: 30) {
                 AppLogger.location.debug(
                     "Fix @ \(AppLogger.coordinate(location.coordinate.latitude, location.coordinate.longitude), privacy: .public) acc=\(location.horizontalAccuracy, format: .fixed(precision: 1))m spd=\(max(0, location.speed) * 3.6, format: .fixed(precision: 0))km/h"

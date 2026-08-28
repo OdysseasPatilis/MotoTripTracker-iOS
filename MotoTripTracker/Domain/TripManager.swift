@@ -8,6 +8,9 @@ import os
 final class TripManager {
     private(set) var sessionState = RideSessionState()
 
+    /// Ordered coordinates for the current session, used to draw the live trail on the dashboard map.
+    private(set) var routeCoordinates: [CLLocationCoordinate2D] = []
+
     private let speedFilter = SpeedFilter()
     private let stopDetector = StopDetector()
     private let gForceTracker: GForceTracker
@@ -36,6 +39,7 @@ final class TripManager {
         isTracking = true
         isPaused = false
         lastLocation = nil
+        routeCoordinates = []
         sessionMaxSpeedKmh = 0
         stopDetector.reset()
         speedSmoother.reset()
@@ -175,6 +179,7 @@ final class TripManager {
         stats.gpsQuality = gpsQuality
 
         lastLocation = location
+        routeCoordinates.append(location.coordinate)
         sessionState = RideSessionState(stats: stats, isActive: true, isPaused: false)
 
         guard let tripID = currentTripID else { return }
