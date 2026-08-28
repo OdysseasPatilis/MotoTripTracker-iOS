@@ -9,12 +9,22 @@ The app is the iOS counterpart of the Android **MotoTripTracker** project, with 
 ## Features
 
 ### Live ride tracking
+- **Split dashboard**: live MapKit map on top (~46%), speedometer + stats below
+- **Live map** with follow-camera and 3D pitch while riding; gentle top-down view when idle
+- **Traveled trail** drawn on the map as a mint polyline during the session
 - **Start / pause / resume / stop** with keep-screen-on while riding
 - **Background location** (Always authorization) so recording continues with the screen locked
-- **Live speedometer** with arc gauge and European-style speed-limit badge
+- **Neon glow speedometer** (270° ring with blurred underlay) and centered European-style speed-limit badge
 - **Dashboard metrics**: distance, moving/stopped time, avg/max speed, elevation gain, longitudinal G, lateral G, corner count
-- **GPS quality** indicator (good / fair / weak ± meters)
+- **GPS quality** and **battery** as floating chips on the map; **Options** menu (History, Leaderboard, theme) hidden while riding so it does not overlap the map compass
 - Short rides under **50 m** are discarded automatically
+
+### Navigation (destination & route)
+- **Set destination** via search sheet (`MKLocalSearchCompleter` autocomplete)
+- **Driving route** computed with `MKDirections` and drawn on the map in blue
+- **Distance remaining** and **ETA** update as you move
+- **Open in Apple Maps** for turn-by-turn handoff; clear route from the dashboard banner
+- Scaffolded for future in-app turn-by-turn (`NavStep` / step index in `NavigationService`)
 
 ### Speed limits (OpenStreetMap / Overpass)
 - Automatic `maxspeed` lookup near your position
@@ -55,8 +65,9 @@ The app is the iOS counterpart of the Android **MotoTripTracker** project, with 
 - Waypoints (start/end, top speed, summit, stops, etc.) with reverse-geocoded labels where available
 
 ### UI & theming
-- Native iOS navigation (toolbars, large titles, inset grouped lists, searchable)
-- Dark / light themes with brand mint/green/blue accents
+- Ride dashboard uses a **HUD-style** layout (hidden nav bar, map overlays) rather than a classic toolbar screen
+- Native iOS navigation elsewhere (toolbars, large titles, inset grouped lists, searchable)
+- Dark / light themes with brand mint/green/blue accents; theme toggle in the dashboard Options menu
 - Over-limit flash keeps the dashboard readable under translucent color
 
 ---
@@ -70,10 +81,14 @@ flowchart TB
   subgraph ui [UI - SwiftUI]
     Root[RootNavigationView]
     Tracker[RideTrackerView]
+    LiveMap[LiveRideMapView]
+    NavSearch[DestinationSearchView]
     History[RideHistoryView]
     Summary[RideSummaryView]
     Route[FullRouteView]
     Root --> Tracker
+    Tracker --> LiveMap
+    Tracker --> NavSearch
     Tracker --> History
     History --> Summary
     Summary --> Route
@@ -94,6 +109,7 @@ flowchart TB
   subgraph services [Services]
     Loc[LocationService]
     SpeedLim[SpeedLimitService]
+    Nav[NavigationService]
     Cache[SpeedLimitCacheStore]
   end
 
@@ -108,10 +124,13 @@ flowchart TB
   Container --> TripMgr
   Container --> Loc
   Container --> SpeedLim
+  Container --> Nav
   Container --> Repo
   Container --> Theme
   Loc -->|CLLocation| TripMgr
   Loc -->|CLLocation| SpeedLim
+  Loc -->|coordinate| Nav
+  Nav --> LiveMap
   TripMgr --> Filters
   TripMgr --> Physics
   TripMgr --> Repo
@@ -126,10 +145,10 @@ flowchart TB
 
 | Layer | Role | Key types |
 | --- | --- | --- |
-| **UI** | Screens, navigation, theme | `RootNavigationView`, tracker / history / summary / route views, `ThemeStore` |
+| **UI** | Screens, navigation, theme | `RootNavigationView`, tracker / live map / destination search / history / summary / route views, `ThemeStore` |
 | **App** | DI / composition root | `AppContainer`, `MotoTripTrackerApp` |
 | **Domain** | Ride loop, filtering, physics, moments | `TripManager`, `TripStats`, detectors / smoothers, `RideMomentsCalculator` |
-| **Services** | Platform & network | `LocationService`, `SpeedLimitService`, `OSMMaxSpeedParser` |
+| **Services** | Platform & network | `LocationService`, `SpeedLimitService`, `NavigationService`, `OSMMaxSpeedParser` |
 | **Data** | Persistence & export | `TripRepository`, SwiftData models, `WaypointAnalyzer`, `GpxExporter`, `PolylineEncoder` |
 | **Utilities** | Cross-cutting helpers | `AppLogger`, `RideFormatters`, `RideShareHelper` |
 
@@ -137,7 +156,7 @@ flowchart TB
 
 1. User taps **Start Ride** → `AppContainer.startRide()`
 2. `LocationService` begins GPS updates (background allowed when Always is granted)
-3. Each fix is validated (`SpeedFilter`), then fed to `TripManager` and `SpeedLimitService`
+3. Each fix is validated (`SpeedFilter`), then fed to `TripManager`, `SpeedLimitService`, and `NavigationService` (for route ETA when a destination is set)
 4. `TripManager` updates `TripStats`, persists route points via `TripRepository`, and runs corner / G / elevation / stop logic
 5. **Stop** finalizes the trip (or deletes it if under 50 m), encodes a polyline, and runs waypoint analysis asynchronously
 
@@ -159,7 +178,7 @@ flowchart TB
 
 ### Logging
 
-Structured `os.Logger` categories (`App`, `Location`, `Trip`, `Persistence`, `SpeedLimit`, `Waypoint`, `Sensors`) with `LogThrottle` to avoid flooding from 1 Hz GPS.
+Structured `os.Logger` categories (`App`, `Location`, `Trip`, `Persistence`, `SpeedLimit`, `Navigation`, `Waypoint`, `Sensors`) with `LogThrottle` to avoid flooding from 1 Hz GPS.
 
 ---
 
@@ -171,10 +190,10 @@ MotoTripTracker/
 ├── AppContainer.swift            # Composition / DI
 ├── Domain/                       # Trip loop & algorithms
 ├── Data/                         # SwiftData models, repository, waypoints
-├── Services/                     # Location, Overpass speed limits
+├── Services/                     # Location, Overpass speed limits, navigation (MKDirections)
 ├── UI/
 │   ├── Navigation/
-│   ├── Tracker/
+│   ├── Tracker/                  # RideTrackerView, LiveRideMapView, DestinationSearchView
 │   ├── History/
 │   ├── Leaderboard/
 │   ├── Summary/
