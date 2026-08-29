@@ -63,6 +63,10 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
     private var lastRecalculateAt: Date = .distantPast
     private var nearestRouteDistance: CLLocationDistance = 0
 
+    /// Called when a driving route is applied (initial or recalculated).
+    var onRouteApplied: (([CLLocationCoordinate2D], TimeInterval) -> Void)?
+    var onRouteCleared: (() -> Void)?
+
     /// How far from the planned polyline before we treat the rider as off-route.
     private static let offRouteThresholdMeters: CLLocationDistance = 80
     /// Advance to the next step when within this distance of its end.
@@ -77,6 +81,13 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
 
     var hasDestination: Bool { destinationCoordinate != nil }
     var hasRoute: Bool { routeCoordinates.count > 1 }
+
+    /// 0 at departure, 1 when the planned route is complete.
+    var routeProgressFraction: Double {
+        guard totalRouteDistance > 0 else { return 0 }
+        let traveled = max(0, totalRouteDistance - distanceRemaining)
+        return min(1, traveled / totalRouteDistance)
+    }
 
     var currentStep: NavStep? {
         guard steps.indices.contains(currentStepIndex) else { return nil }
@@ -368,6 +379,7 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
         nearestRouteDistance = 0
         searchQuery = ""
         searchResults = []
+        onRouteCleared?()
         AppLogger.navigation.notice("Navigation cleared")
     }
 
@@ -436,6 +448,7 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
         AppLogger.navigation.notice(
             "Route \(isRecalculation ? "recalculated" : "computed"): \(Int(distance))m, \(steps.count) steps"
         )
+        onRouteApplied?(coordinates, travelTime)
     }
 
     private func recomputeRemaining(from coordinate: CLLocationCoordinate2D) {

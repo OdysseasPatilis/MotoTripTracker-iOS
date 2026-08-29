@@ -1,3 +1,4 @@
+import Combine
 import CoreLocation
 import MapKit
 import SwiftUI
@@ -18,11 +19,26 @@ struct FullRouteView: View {
     @State private var selectedLayer: MapLayer = .speed
     @State private var cameraPosition: MapCameraPosition = .automatic
     @State private var tripDistanceKm: Double = 0
+    @State private var replayElapsed: TimeInterval = 0
+    @State private var isReplaying = false
+    @State private var playbackRate: Double = 1
+    @State private var replayAnchor = Date()
+    @State private var replayStartElapsed: TimeInterval = 0
+
+    private var replayEngine: RouteReplayEngine { RouteReplayEngine(points: points) }
+    private var replayFrame: RouteReplayFrame? { replayEngine.frame(at: replayElapsed) }
 
     var body: some View {
         let colors = theme.palette
 
         List {
+            if replayEngine.isValid {
+                Section("Replay") {
+                    replayControls(colors: colors)
+                        .listRowBackground(colors.bgCard)
+                }
+            }
+
             Section {
                 Picker("Layer", selection: $selectedLayer) {
                     ForEach(MapLayer.allCases) { layer in
@@ -76,23 +92,148 @@ struct FullRouteView: View {
         .navigationTitle("Route")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
-            points = app.repository.routePoints(for: tripID)
-            waypoints = app.repository.waypoints(for: tripID)
-            tripDistanceKm = (app.repository.fetchTrip(id: tripID)?.distanceMeters ?? 0) / 1000
-            let coords = points.map {
-                CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude)
+            loadRouteData()
+        }
+        .onDisappear {
+            isReplaying = false
+        }
+        .onChange(of: replayElapsed) { _, elapsed in
+            guard let frame = replayEngine.frame(at: elapsed) else { return }
+            withAnimation(.easeInOut(duration: 0.2)) {
+                cameraPosition = .region(
+                    MKCoordinateRegion(
+                        center: frame.coordinate,
+                        span: MKCoordinateSpan(latitudeDelta: 0.012, longitudeDelta: 0.012)
+                    )
+                )
             }
-            if let region = Self.region(fitting: coords) {
-                cameraPosition = .region(region)
+        }
+        .onReceive(Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()) { now in
+            guard isReplaying, replayEngine.duration > 0 else { return }
+            let delta = now.timeIntervalSince(replayAnchor) * playbackRate
+            replayElapsed = min(replayEngine.duration, replayStartElapsed + delta)
+            if replayElapsed >= replayEngine.duration {
+                isReplaying = false
             }
         }
     }
 
+    private func loadRouteData() {
+        points = app.repository.routePoints(for: tripID)
+        waypoints = app.repository.waypoints(for: tripID)
+        tripDistanceKm = (app.repository.fetchTrip(id: tripID)?.distanceMeters ?? 0) / 1000
+        replayElapsed = 0
+        isReplaying = false
+        let coords = points.map {
+            CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude)
+        }
+        if let region = Self.region(fitting: coords) {
+            cameraPosition = .region(region)
+        }
+    }
+
+    @ViewBuilder
+    private func replayControls(colors: AppPalette) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                Button {
+                    if isReplaying {
+                        isReplaying = false
+                    } else {
+                        replayStartElapsed = replayElapsed
+                        replayAnchor = Date()
+                        if replayElapsed >= replayEngine.duration {
+                            replayElapsed = 0
+                            replayStartElapsed = 0
+                        }
+                        isReplaying = true
+                    }
+                } label: {
+                    Image(systemName: isReplaying ? "pause.fill" : "play.fill")
+                        .font(.headline)
+                        .frame(width: 40, height: 40)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(colors.neonGreen)
+
+                Button {
+                    replayElapsed = 0
+                    isReplaying = false
+                } label: {
+                    Image(systemName: "backward.end.fill")
+                }
+                .buttonStyle(.bordered)
+                .tint(colors.neonBlue)
+
+                Picker("Speed", selection: $playbackRate) {
+                    Text("1×").tag(1.0)
+                    Text("2×").tag(2.0)
+                    Text("4×").tag(4.0)
+                }
+                .pickerStyle(.segmented)
+
+                Spacer(minLength: 0)
+
+                if let frame = replayFrame {
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text("\(Int(frame.speedKmh.rounded())) km/h")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(colors.neonGreen)
+                        Text(RideFormatters.secondsToTime(Int64(frame.elapsed)))
+                            .font(.caption2)
+                            .foregroundStyle(colors.textSecondary)
+                    }
+                }
+            }
+
+            if replayEngine.duration > 0 {
+                Slider(
+                    value: Binding(
+                        get: { replayElapsed },
+                        set: { newValue in
+                            replayElapsed = newValue
+                            replayAnchor = Date()
+                            isReplaying = false
+                        }
+                    ),
+                    in: 0...replayEngine.duration
+                )
+                .tint(colors.neonGreen)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
     private func routeMap(colors: AppPalette) -> some View {
-        Map(position: $cameraPosition) {
-            ForEach(Array(segments(colors: colors).enumerated()), id: \.offset) { _, segment in
-                MapPolyline(coordinates: segment.coordinates)
-                    .stroke(segment.color, lineWidth: 5)
+        let traveled = replayFrame.flatMap { replayEngine.isValid ? replayEngine.trailCoordinates(upTo: $0) : nil } ?? []
+        let remaining = replayFrame.flatMap { remainingReplayCoordinates(from: $0) } ?? []
+
+        return Map(position: $cameraPosition) {
+            if let frame = replayFrame, replayEngine.isValid {
+                if traveled.count >= 2 {
+                    MapPolyline(coordinates: traveled)
+                        .stroke(colors.neonGreen, lineWidth: 6)
+                }
+                if remaining.count >= 2 {
+                    MapPolyline(coordinates: remaining)
+                        .stroke(colors.textSecondary.opacity(0.35), lineWidth: 4)
+                }
+                Annotation("Rider", coordinate: frame.coordinate) {
+                    ZStack {
+                        Circle()
+                            .fill(colors.neonGreen.opacity(0.25))
+                            .frame(width: 28, height: 28)
+                        Circle()
+                            .fill(colors.neonGreen)
+                            .frame(width: 14, height: 14)
+                            .overlay(Circle().stroke(colors.bgDeep, lineWidth: 2))
+                    }
+                }
+            } else {
+                ForEach(Array(segments(colors: colors).enumerated()), id: \.offset) { _, segment in
+                    MapPolyline(coordinates: segment.coordinates)
+                        .stroke(segment.color, lineWidth: 5)
+                }
             }
             ForEach(waypoints, id: \.id) { waypoint in
                 Annotation(
@@ -112,6 +253,16 @@ struct FullRouteView: View {
         }
         .mapStyle(.standard(elevation: .realistic))
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private func remainingReplayCoordinates(from frame: RouteReplayFrame) -> [CLLocationCoordinate2D] {
+        let remainingStart = min(frame.segmentIndex + 1, points.count - 1)
+        guard remainingStart < points.count - 1 else { return [] }
+        var coords = points[remainingStart...].map {
+            CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude)
+        }
+        coords.insert(frame.coordinate, at: 0)
+        return coords
     }
 
     private func profileChart(colors: AppPalette) -> some View {

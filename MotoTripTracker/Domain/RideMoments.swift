@@ -209,23 +209,19 @@ enum RideMomentsCalculator {
     }
 
     private static func twistiesHighlight(trip: Trip) -> RideMoment? {
-        guard trip.cornerCount >= 3, trip.distanceKm >= 1 else { return nil }
-        let per10 = Double(trip.cornerCount) / trip.distanceKm * 10
-        guard per10 >= 4 else { return nil }
-        let vibe: String
-        if per10 >= 12 {
-            vibe = "Proper twisties"
-        } else if per10 >= 8 {
-            vibe = "Plenty of bends"
-        } else {
-            vibe = "Nice flowing turns"
-        }
+        let score = TwistinessCalculator.score(for: trip)
+        guard score >= 25, trip.cornerCount >= 3, trip.distanceKm >= 1 else { return nil }
+        let rating = TwistinessCalculator.rating(for: score)
+        let per10 = TwistinessCalculator.cornersPer10Km(
+            cornerCount: trip.cornerCount,
+            distanceKm: trip.distanceKm
+        )
         return RideMoment(
             id: "twisties",
-            title: "Twisties",
-            value: String(format: "%.0f / 10 km", per10),
-            detail: "\(vibe) · \(trip.cornerCount) corners total",
-            systemImage: "arrow.triangle.turn.up.right.diamond.fill"
+            title: "Twistiness",
+            value: "\(TwistinessCalculator.formattedScore(score)) · \(rating.rawValue)",
+            detail: String(format: "%.0f corners / 10 km · peak %.2f G lateral", per10, trip.maxLateralGForce),
+            systemImage: rating.systemImage
         )
     }
 

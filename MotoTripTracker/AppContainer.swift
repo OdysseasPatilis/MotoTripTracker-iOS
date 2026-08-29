@@ -15,6 +15,7 @@ final class AppContainer {
     let navigationService: NavigationService
     let fuelService: FuelService
     let petrolPreferences: PetrolPreferences
+    let routeWeatherService: RouteWeatherService
     let theme: ThemeStore
 
     init(inMemory: Bool = false) {
@@ -32,7 +33,15 @@ final class AppContainer {
         self.navigationService = NavigationService()
         self.fuelService = FuelService()
         self.petrolPreferences = PetrolPreferences()
+        self.routeWeatherService = RouteWeatherService()
         self.theme = ThemeStore()
+
+        navigationService.onRouteApplied = { [weak self] coordinates, travelTime in
+            self?.routeWeatherService.refreshForRoute(coordinates: coordinates, travelTime: travelTime)
+        }
+        navigationService.onRouteCleared = { [weak self] in
+            self?.routeWeatherService.clear()
+        }
 
         locationService.onLocationUpdate = { [weak self] location in
             guard let self else { return }
@@ -42,6 +51,11 @@ final class AppContainer {
             let session = self.tripManager.sessionState
             if session.isActive, !session.isPaused {
                 self.fuelService.updateConsumedDistance(tripDistanceKm: session.stats.distanceKm)
+            }
+            if self.navigationService.hasRoute {
+                self.routeWeatherService.refreshAhead(
+                    progressFraction: self.navigationService.routeProgressFraction
+                )
             }
             self.pushLiveActivityUpdate()
         }

@@ -18,6 +18,8 @@ final class Trip {
     var isFavorite: Bool = false
     var maxLateralGForce: Double = 0
     var cornerCount: Int = 0
+    /// Composite twistiness score 0–100 (corner density + lateral G).
+    var twistinessScore: Double = 0
 
     @Relationship(deleteRule: .cascade, inverse: \RoutePoint.trip)
     var routePoints: [RoutePoint]
@@ -38,6 +40,7 @@ final class Trip {
         isFavorite: Bool = false,
         maxLateralGForce: Double = 0,
         cornerCount: Int = 0,
+        twistinessScore: Double = 0,
         routePoints: [RoutePoint] = []
     ) {
         self.id = id
@@ -55,6 +58,7 @@ final class Trip {
         self.isFavorite = isFavorite
         self.maxLateralGForce = maxLateralGForce
         self.cornerCount = cornerCount
+        self.twistinessScore = twistinessScore
         self.routePoints = routePoints
     }
 

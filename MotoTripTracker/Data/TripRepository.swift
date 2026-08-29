@@ -155,6 +155,11 @@ final class TripRepository {
         trip.avgSpeed = stats.avgSpeed
         trip.maxLateralGForce = stats.maxLateralGForce
         trip.cornerCount = stats.cornerCount
+        trip.twistinessScore = TwistinessCalculator.score(
+            cornerCount: stats.cornerCount,
+            distanceKm: stats.distanceKm,
+            maxLateralGForce: stats.maxLateralGForce
+        )
     }
 
     private func saveContext(action: String) {

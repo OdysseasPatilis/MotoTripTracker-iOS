@@ -51,6 +51,7 @@ struct RideSummaryView: View {
                         summaryRow("Max G", String(format: "%.2f G", trip.maxGForce), valueColor: colors.neonGreen, colors: colors)
                         summaryRow("Lateral G", String(format: "%.2f G", trip.maxLateralGForce), valueColor: colors.neonBlue, colors: colors)
                         summaryRow("Corners", "\(trip.cornerCount)", valueColor: colors.neonGreen, colors: colors)
+                        twistinessRow(trip, colors: colors)
                     }
 
                     if !moments.moments.isEmpty {
@@ -103,7 +104,7 @@ struct RideSummaryView: View {
                             Label("Rename", systemImage: "pencil")
                         }
                         NavigationLink(value: AppRoute.fullRoute(trip.id)) {
-                            Label("View Route", systemImage: "map")
+                            Label("Replay Route", systemImage: "play.circle")
                         }
                         Divider()
                         Button("Delete Ride", role: .destructive) {
@@ -139,6 +140,24 @@ struct RideSummaryView: View {
             let points = app.repository.routePoints(for: tripID)
             moments = RideMomentsCalculator.calculate(trip: trip, points: points)
             renameText = trip.title ?? ""
+        }
+    }
+
+    private func twistinessRow(_ trip: Trip, colors: AppPalette) -> some View {
+        let score = TwistinessCalculator.score(for: trip)
+        let rating = TwistinessCalculator.rating(for: score)
+        return LabeledContent {
+            HStack(spacing: 6) {
+                Text("\(TwistinessCalculator.formattedScore(score))")
+                    .foregroundStyle(colors.neonBlue)
+                    .fontWeight(.semibold)
+                Text(rating.rawValue)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(colors.textSecondary)
+            }
+        } label: {
+            Label("Twistiness", systemImage: rating.systemImage)
+                .foregroundStyle(colors.textPrimary)
         }
     }
 

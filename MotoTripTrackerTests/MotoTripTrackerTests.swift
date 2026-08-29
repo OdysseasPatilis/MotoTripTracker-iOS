@@ -307,6 +307,43 @@ struct MotoTripTrackerTests {
         #expect(OpeningHoursEvaluator.status(of: "complex || unsupported", at: noon, calendar: calendar) == .unknown)
     }
 
+    @Test func twistinessScoreCombinesCornersAndLateralG() {
+        let straight = TwistinessCalculator.score(cornerCount: 2, distanceKm: 20, maxLateralGForce: 0.2)
+        let twisty = TwistinessCalculator.score(cornerCount: 40, distanceKm: 20, maxLateralGForce: 0.7)
+        #expect(straight < twisty)
+        #expect(TwistinessCalculator.rating(for: twisty) == .twisty || TwistinessCalculator.rating(for: twisty) == .epic)
+    }
+
+    @Test func routeReplayEngineInterpolatesBetweenPoints() {
+        let points = [
+            RoutePoint(latitude: 37.98, longitude: 23.72, altitude: 100, speedMps: 10, timestamp: 1_000),
+            RoutePoint(latitude: 37.99, longitude: 23.73, altitude: 110, speedMps: 20, timestamp: 1_100)
+        ]
+        let engine = RouteReplayEngine(points: points)
+        #expect(engine.duration == 100)
+        let mid = engine.frame(at: 50)
+        #expect(mid != nil)
+        #expect((mid?.speedKmh ?? 0) > 30)
+        #expect((mid?.speedKmh ?? 0) < 90)
+    }
+
+    @Test func openMeteoHourlyTimeParsesLocalFormat() {
+        let tz = TimeZone(identifier: "Europe/Athens")!
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = tz
+        let components = DateComponents(year: 2026, month: 8, day: 29, hour: 3)
+        let expected = calendar.date(from: components)!
+
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm"
+        formatter.timeZone = tz
+        let parsed = formatter.date(from: "2026-08-29T03:00")
+
+        #expect(parsed != nil)
+        #expect(abs((parsed ?? .distantPast).timeIntervalSince(expected)) < 1)
+    }
+
     @Test func petrolSearchStrategyAdaptsRadiusForDensity() {
         let origin = CLLocationCoordinate2D(latitude: 37.98, longitude: 23.72)
 

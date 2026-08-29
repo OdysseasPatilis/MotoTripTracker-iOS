@@ -4,6 +4,7 @@ enum LeaderboardCategory: String, CaseIterable, Identifiable {
     case speed = "Speed"
     case distance = "Distance"
     case turns = "Turns"
+    case twistiness = "Twistiness"
 
     var id: String { rawValue }
 
@@ -12,6 +13,7 @@ enum LeaderboardCategory: String, CaseIterable, Identifiable {
         case .speed: "gauge.with.dots.needle.67percent"
         case .distance: "point.bottomleft.forward.to.point.topright.scurvepath"
         case .turns: "arrow.triangle.turn.up.right.diamond"
+        case .twistiness: "point.topleft.down.to.point.bottomright.curvepath"
         }
     }
 
@@ -20,6 +22,7 @@ enum LeaderboardCategory: String, CaseIterable, Identifiable {
         case .speed: "km/h"
         case .distance: "km"
         case .turns: "corners"
+        case .twistiness: "score"
         }
     }
 
@@ -28,11 +31,17 @@ enum LeaderboardCategory: String, CaseIterable, Identifiable {
         case .speed: trip.maxSpeed
         case .distance: trip.distanceKm
         case .turns: Double(trip.cornerCount)
+        case .twistiness: TwistinessCalculator.score(for: trip)
         }
     }
 
     func isEligible(_ trip: Trip) -> Bool {
-        value(for: trip) > 0
+        switch self {
+        case .twistiness:
+            return value(for: trip) >= 10
+        default:
+            return value(for: trip) > 0
+        }
     }
 
     func formattedValue(for trip: Trip) -> String {
@@ -43,6 +52,9 @@ enum LeaderboardCategory: String, CaseIterable, Identifiable {
             return String(format: "%.1f km", trip.distanceKm)
         case .turns:
             return "\(trip.cornerCount)"
+        case .twistiness:
+            let score = TwistinessCalculator.score(for: trip)
+            return "\(TwistinessCalculator.formattedScore(score)) · \(TwistinessCalculator.rating(for: score).rawValue)"
         }
     }
 }

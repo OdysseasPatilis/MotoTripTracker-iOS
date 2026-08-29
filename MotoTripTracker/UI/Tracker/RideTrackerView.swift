@@ -11,6 +11,7 @@ struct RideTrackerView: View {
     @State private var showDestinationSearch = false
     @State private var showFuelSettings = false
     @State private var showPetrolPicker = false
+    @State private var showRouteWeather = false
 
     private static let selectableSpeedLimits = [30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130]
 
@@ -97,6 +98,9 @@ struct RideTrackerView: View {
         }
         .sheet(isPresented: $showPetrolPicker) {
             PetrolStationsView()
+        }
+        .sheet(isPresented: $showRouteWeather) {
+            RouteWeatherView()
         }
         .onAppear {
             batteryLevel = BatteryReader.currentLevel()
@@ -278,42 +282,76 @@ struct RideTrackerView: View {
     }
 
     private func activeRouteBanner(nav: NavigationService, colors: AppPalette) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: "flag.checkered")
-                .font(.title3)
-                .foregroundStyle(colors.neonBlue)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(nav.destinationName ?? "Destination")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(colors.textPrimary)
-                    .lineLimit(1)
-                Text(nav.isRouting ? "Calculating route…" : nav.summaryText)
-                    .font(.caption)
-                    .foregroundStyle(colors.textSecondary)
-                    .lineLimit(1)
-            }
-
-            Spacer(minLength: 8)
-
-            Button {
-                nav.openInAppleMaps()
-            } label: {
-                Image(systemName: "location.north.line.fill")
-                    .font(.headline)
-                    .foregroundStyle(colors.neonGreen)
-                    .frame(width: 36, height: 36)
-            }
-            .accessibilityLabel("Open in Apple Maps")
-
-            Button {
-                nav.clear()
-            } label: {
-                Image(systemName: "xmark.circle.fill")
+        @Bindable var weather = app.routeWeatherService
+        return VStack(spacing: 8) {
+            HStack(spacing: 12) {
+                Image(systemName: "flag.checkered")
                     .font(.title3)
-                    .foregroundStyle(colors.textSecondary)
+                    .foregroundStyle(colors.neonBlue)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(nav.destinationName ?? "Destination")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(colors.textPrimary)
+                        .lineLimit(1)
+                    Text(nav.isRouting ? "Calculating route…" : nav.summaryText)
+                        .font(.caption)
+                        .foregroundStyle(colors.textSecondary)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 8)
+
+                Button {
+                    nav.openInAppleMaps()
+                } label: {
+                    Image(systemName: "location.north.line.fill")
+                        .font(.headline)
+                        .foregroundStyle(colors.neonGreen)
+                        .frame(width: 36, height: 36)
+                }
+                .accessibilityLabel("Open in Apple Maps")
+
+                Button {
+                    nav.clear()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title3)
+                        .foregroundStyle(colors.textSecondary)
+                }
+                .accessibilityLabel("Clear destination")
             }
-            .accessibilityLabel("Clear destination")
+
+            if nav.hasRoute, !nav.isRouting {
+                Button {
+                    showRouteWeather = true
+                } label: {
+                    HStack(spacing: 8) {
+                        if weather.isLoading {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else if let first = weather.segments.first {
+                            Image(systemName: first.conditionSymbol)
+                                .foregroundStyle(colors.neonBlue)
+                        } else {
+                            Image(systemName: "cloud.fill")
+                                .foregroundStyle(weather.lastError != nil ? colors.routeAmber : colors.neonBlue)
+                        }
+                        Text(weather.summaryText)
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(
+                                weather.lastError != nil ? colors.routeAmber : colors.textSecondary
+                            )
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.right")
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(colors.textSecondary.opacity(0.7))
+                    }
+                }
+                .buttonStyle(.plain)
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -390,7 +428,7 @@ struct RideTrackerView: View {
             ("Elevation", "\(Int(stats.totalElevationGain)) m", nil),
             ("Max G", String(format: "%.2f G", stats.maxGForce), colors.neonBlue),
             ("Lateral G", String(format: "%.2f G", stats.currentLateralGForce), colors.neonBlue),
-            ("Corners", "\(stats.cornerCount)", colors.neonGreen)
+            ("Twistiness", twistinessLabel(stats), colors.neonBlue)
         ]
 
         return LazyVGrid(columns: columns, spacing: 12) {
@@ -403,6 +441,16 @@ struct RideTrackerView: View {
                 )
             }
         }
+    }
+
+    private func twistinessLabel(_ stats: TripStats) -> String {
+        let score = TwistinessCalculator.score(
+            cornerCount: stats.cornerCount,
+            distanceKm: stats.distanceKm,
+            maxLateralGForce: stats.maxLateralGForce
+        )
+        guard score > 0 else { return "—" }
+        return TwistinessCalculator.formattedScore(score)
     }
 
     private func bottomBar(session: RideSessionState, colors: AppPalette) -> some View {

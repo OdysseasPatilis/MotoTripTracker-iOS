@@ -155,7 +155,15 @@ enum RideShareCardRenderer {
                 color: .white
             )
 
-            var y: CGFloat = mapRect.maxY + 48
+            let twistScore = TwistinessCalculator.score(for: trip)
+            let statsY = mapRect.maxY + 24
+            drawStatsStrip(
+                trip: trip,
+                twistScore: twistScore,
+                in: CGRect(x: 48, y: statsY, width: width - 96, height: 72)
+            )
+
+            var y: CGFloat = statsY + 92
             drawText(
                 "MOMENTS",
                 at: CGPoint(x: 48, y: y),
@@ -289,6 +297,36 @@ enum RideShareCardRenderer {
         cg.fillEllipse(in: outer)
         color.setFill()
         cg.fillEllipse(in: outer.insetBy(dx: 3, dy: 3))
+    }
+
+    private static func drawStatsStrip(trip: Trip, twistScore: Double, in rect: CGRect) {
+        let path = UIBezierPath(roundedRect: rect, cornerRadius: 20)
+        UIColor.white.withAlphaComponent(0.06).setFill()
+        path.fill()
+
+        let items: [(String, String)] = [
+            ("Max", "\(Int(trip.maxSpeed)) km/h"),
+            ("Twist", twistScore > 0 ? TwistinessCalculator.formattedScore(twistScore) : "—"),
+            ("Corners", "\(trip.cornerCount)"),
+            ("Time", RideFormatters.secondsToTime(trip.movingTime))
+        ]
+        let columnWidth = rect.width / CGFloat(items.count)
+        for (index, item) in items.enumerated() {
+            let x = rect.minX + columnWidth * CGFloat(index) + 12
+            drawText(
+                item.0.uppercased(),
+                at: CGPoint(x: x, y: rect.minY + 12),
+                font: .systemFont(ofSize: 16, weight: .semibold),
+                color: UIColor.white.withAlphaComponent(0.4)
+            )
+            drawText(
+                item.1,
+                at: CGPoint(x: x, y: rect.minY + 34),
+                font: .systemFont(ofSize: 24, weight: .bold),
+                color: index == 1 ? mint : .white,
+                maxWidth: columnWidth - 16
+            )
+        }
     }
 
     @discardableResult
