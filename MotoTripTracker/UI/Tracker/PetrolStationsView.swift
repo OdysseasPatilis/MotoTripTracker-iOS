@@ -35,7 +35,7 @@ struct PetrolStationsView: View {
                     List {
                         Section {
                             ForEach(stations) { station in
-                                stationRow(station, colors: colors)
+                                stationCard(station, colors: colors)
                             }
                         } header: {
                             if let searchPlan {
@@ -55,7 +55,7 @@ struct PetrolStationsView: View {
                             }
                         } footer: {
                             Text(
-                                "Search radius adapts to your area — tighter in cities, wider in towns and rural areas. On the highway, stations on or beside the road are ranked first. Tap Details for Apple Maps hours before you go."
+                                "Open/closed uses OpenStreetMap hours when available. Stars show how well a station matches your brand and octane prefs — Apple Maps ratings aren’t readable by apps. Tap Details for Apple’s full place card."
                             )
                         }
                     }
@@ -80,87 +80,177 @@ struct PetrolStationsView: View {
     }
 
     @ViewBuilder
-    private func stationRow(_ station: PetrolStationFinder.RankedStation, colors: AppPalette) -> some View {
+    private func stationCard(_ station: PetrolStationFinder.RankedStation, colors: AppPalette) -> some View {
         let rec = station.recommendation
         let prefs = app.petrolPreferences
+        let stars = rec.preferenceMatchStars(preferences: prefs)
+        let address = station.mapItem?.placemark.thoroughfare
+            ?? station.mapItem?.placemark.locality
 
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                brandGlyph(rec, colors: colors)
+
+                VStack(alignment: .leading, spacing: 6) {
                     Text(rec.name)
                         .font(.body.weight(.semibold))
                         .foregroundStyle(colors.textPrimary)
                         .lineLimit(2)
 
-                    HStack(spacing: 8) {
-                        Text(formatDistance(rec.distanceMeters))
-                            .font(.caption.weight(.medium))
+                    if let address, !address.isEmpty {
+                        Text(address)
+                            .font(.caption)
                             .foregroundStyle(colors.textSecondary)
+                            .lineLimit(1)
+                    }
 
-                        openBadge(rec.openStatus, colors: colors)
+                    HStack(spacing: 8) {
+                        Label(formatDistance(rec.distanceMeters), systemImage: "location.fill")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(colors.textSecondary)
+                            .labelStyle(.titleAndIcon)
 
+                        matchStars(stars, colors: colors)
+                    }
+
+                    openStatusRow(rec, colors: colors)
+
+                    HStack(spacing: 6) {
                         if prefs.isPreferredBrand(rec.brand ?? rec.name) {
-                            Text("Preferred")
-                                .font(.caption2.weight(.bold))
-                                .foregroundStyle(colors.neonGreen)
+                            chip("Preferred", tint: colors.neonGreen, colors: colors)
                         }
-
                         if rec.isHighwayAccessible {
-                            Text("Highway")
-                                .font(.caption2.weight(.bold))
-                                .foregroundStyle(colors.neonBlue)
+                            chip("Highway", tint: colors.neonBlue, colors: colors)
                         }
+                        octaneChip(rec, prefs: prefs, colors: colors)
                     }
-
-                    Text(rec.displayOctanes(preferred: prefs.preferredOctanes))
-                        .font(.caption)
-                        .foregroundStyle(octaneColor(rec, prefs: prefs, colors: colors))
                 }
 
-                Spacer(minLength: 8)
+                Spacer(minLength: 0)
+            }
 
-                VStack(spacing: 8) {
-                    Button("Go") {
-                        app.navigationService.setDestination(
-                            coordinate: rec.coordinate,
-                            name: rec.name
-                        )
-                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                        dismiss()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(colors.neonGreen)
-                    .controlSize(.small)
-
-                    Button("Details") {
-                        if let item = station.mapItem {
-                            detailItem = item
-                        } else {
-                            let item = MKMapItem(placemark: MKPlacemark(coordinate: rec.coordinate))
-                            item.name = rec.name
-                            detailItem = item
-                        }
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .tint(colors.neonBlue)
+            HStack(spacing: 10) {
+                Button {
+                    app.navigationService.setDestination(
+                        coordinate: rec.coordinate,
+                        name: rec.name
+                    )
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    dismiss()
+                } label: {
+                    Text("Go")
+                        .font(.subheadline.weight(.bold))
+                        .frame(minWidth: 72)
+                        .padding(.vertical, 10)
                 }
+                .buttonStyle(.borderedProminent)
+                .tint(colors.neonGreen)
+                .controlSize(.regular)
+
+                Button {
+                    if let item = station.mapItem {
+                        detailItem = item
+                    } else {
+                        let item = MKMapItem(placemark: MKPlacemark(coordinate: rec.coordinate))
+                        item.name = rec.name
+                        detailItem = item
+                    }
+                } label: {
+                    Text("Details")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                }
+                .buttonStyle(.bordered)
+                .tint(colors.neonBlue)
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 8)
         .listRowBackground(colors.bgCard)
         .opacity(rec.openStatus == .closed ? 0.55 : 1)
     }
 
-    private func openBadge(_ status: OpeningHoursEvaluator.Status, colors: AppPalette) -> some View {
-        let (text, color): (String, Color) = switch status {
-        case .open: ("Open", colors.neonGreen)
-        case .closed: ("Closed", colors.neonRed)
-        case .unknown: ("Hours ?", colors.routeAmber)
+    private func brandGlyph(_ rec: PetrolStationRecommendation, colors: AppPalette) -> some View {
+        let letter = String((rec.brand ?? rec.name).prefix(1)).uppercased()
+        return ZStack {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(colors.neonBlue.opacity(0.16))
+                .frame(width: 48, height: 48)
+            if letter.isEmpty {
+                Image(systemName: "fuelpump.fill")
+                    .foregroundStyle(colors.neonBlue)
+            } else {
+                Text(letter)
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(colors.neonBlue)
+            }
         }
-        return Text(text)
+    }
+
+    private func matchStars(_ count: Int, colors: AppPalette) -> some View {
+        HStack(spacing: 2) {
+            ForEach(1...5, id: \.self) { index in
+                Image(systemName: index <= count ? "star.fill" : "star")
+                    .font(.caption2)
+                    .foregroundStyle(index <= count ? colors.routeAmber : colors.textSecondary.opacity(0.35))
+            }
+        }
+        .accessibilityLabel("Preference match \(count) of 5 stars")
+    }
+
+    private func openStatusRow(_ rec: PetrolStationRecommendation, colors: AppPalette) -> some View {
+        let (title, tint, icon): (String, Color, String) = switch rec.openStatus {
+        case .open: ("Open now", colors.neonGreen, "checkmark.circle.fill")
+        case .closed: ("Closed now", colors.neonRed, "xmark.circle.fill")
+        case .unknown: ("Hours unknown", colors.routeAmber, "clock")
+        }
+
+        return HStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.caption.weight(.bold))
+            Text(title)
+                .font(.caption.weight(.bold))
+            if let hours = rec.hoursSummary, rec.openStatus != .unknown {
+                Text("·")
+                    .foregroundStyle(colors.textSecondary)
+                Text(hours)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(colors.textSecondary)
+                    .lineLimit(1)
+            } else if rec.openStatus == .unknown {
+                Text("·")
+                    .foregroundStyle(colors.textSecondary)
+                Text("Check Details")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(colors.textSecondary)
+            }
+        }
+        .foregroundStyle(tint)
+    }
+
+    private func chip(_ title: String, tint: Color, colors: AppPalette) -> some View {
+        Text(title)
             .font(.caption2.weight(.bold))
-            .foregroundStyle(color)
+            .foregroundStyle(tint)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(tint.opacity(0.14), in: Capsule())
+    }
+
+    private func octaneChip(
+        _ rec: PetrolStationRecommendation,
+        prefs: PetrolPreferences,
+        colors: AppPalette
+    ) -> some View {
+        let label = rec.displayOctanes(preferred: prefs.preferredOctanes)
+        let tint = octaneColor(rec, prefs: prefs, colors: colors)
+        return Text(label)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(tint)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(tint.opacity(0.12), in: Capsule())
+            .lineLimit(1)
     }
 
     private func octaneColor(

@@ -305,6 +305,8 @@ struct MotoTripTrackerTests {
         #expect(OpeningHoursEvaluator.status(of: "Mo-Su 18:00-22:00", at: noon, calendar: calendar) == .closed)
         #expect(OpeningHoursEvaluator.status(of: nil, at: noon, calendar: calendar) == .unknown)
         #expect(OpeningHoursEvaluator.status(of: "complex || unsupported", at: noon, calendar: calendar) == .unknown)
+        #expect(OpeningHoursEvaluator.shortLabel(of: "24/7") == "24/7")
+        #expect(OpeningHoursEvaluator.shortLabel(of: "Mo-Su 06:00-22:00") == "06:00–22:00")
     }
 
     @Test func twistinessScoreCombinesCornersAndLateralG() {

@@ -35,6 +35,34 @@ struct PetrolStationRecommendation: Identifiable, Hashable {
         if availableOctanes.isEmpty { return "Fuel grades unknown" }
         return availableOctanes.sorted().map { "\($0)" }.joined(separator: " · ")
     }
+
+    /// 1–5 stars for how well this station matches brand + octane preferences.
+    /// Not Apple Maps ratings — MapKit does not expose those to apps.
+    func preferenceMatchStars(preferences: PetrolPreferences) -> Int {
+        var stars = 2
+        let brandRank = preferences.brandRank(for: brand ?? name)
+        if brandRank == 0 {
+            stars = 4
+        } else if brandRank == 1 {
+            stars = 3
+        } else if brandRank < Int.max / 2 {
+            stars = 2
+        }
+
+        let preferred = preferences.preferredOctanes
+        if !preferred.isEmpty, !availableOctanes.isEmpty,
+           !availableOctanes.isDisjoint(with: preferred) {
+            stars = min(5, stars + 1)
+        }
+        if openStatus == .open {
+            stars = min(5, stars + (brandRank == 0 ? 1 : 0))
+        }
+        return max(1, min(5, stars))
+    }
+
+    var hoursSummary: String? {
+        OpeningHoursEvaluator.shortLabel(of: openingHoursRaw)
+    }
 }
 
 /// Adaptive petrol search output for the picker UI.

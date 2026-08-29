@@ -10,6 +10,28 @@ enum OpeningHoursEvaluator {
         case unknown
     }
 
+    /// Compact label for list UI (e.g. "24/7", "06:00–22:00").
+    static func shortLabel(of raw: String?) -> String? {
+        guard var text = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else {
+            return nil
+        }
+        text = text.replacingOccurrences(of: "–", with: "-")
+        let lowered = text.lowercased()
+        if lowered == "24/7" || lowered == "open" { return "24/7" }
+        if lowered == "closed" || lowered == "off" { return "Closed" }
+
+        // Prefer the first time range in the string.
+        if let match = text.range(
+            of: #"\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}"#,
+            options: .regularExpression
+        ) {
+            let range = String(text[match]).replacingOccurrences(of: " ", with: "")
+            return range.replacingOccurrences(of: "-", with: "–")
+        }
+        if text.count <= 28 { return text }
+        return String(text.prefix(25)) + "…"
+    }
+
     static func status(of raw: String?, at date: Date = Date(), calendar: Calendar = .current) -> Status {
         guard var text = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else {
             return .unknown
