@@ -15,7 +15,7 @@ The app is the iOS counterpart of the Android **MotoTripTracker** project, with 
 - **Start / pause / resume / stop** with keep-screen-on while riding
 - **Background location** (Always authorization) so recording continues with the screen locked
 - **Neon glow speedometer** (270° ring with blurred underlay) and centered European-style speed-limit badge
-- **Dashboard metrics**: distance, moving/stopped time, avg/max speed, elevation gain, longitudinal G, lateral G, corner count
+- **Dashboard metrics**: distance, moving/stopped time, avg/max speed, elevation gain, longitudinal G, lateral G, **twistiness score** (0–100 from corner density + lateral G)
 - **GPS quality** and **battery** as floating chips on the map; **Options** menu (History, Leaderboard, theme) hidden while riding so it does not overlap the map compass
 - Short rides under **50 m** are discarded automatically
 
@@ -31,7 +31,8 @@ The app is the iOS counterpart of the Android **MotoTripTracker** project, with 
 - **In-app turn-by-turn**: next-maneuver banner with distance, instruction, and SF Symbol; advances as you approach each step; light haptic on advance
 - **Off-route recalculation** when you stray ~80 m from the planned polyline (cooldown to avoid spam)
 - **Distance remaining** and **ETA** update as you move
-- **Nearest petrol** opens a **recommendation list** ranked by saved brand order (e.g. Shell → BP), preferred octane (98 / 100), open status, then distance. **Details** shows Apple Maps place card (hours); **Go** starts in-app navigation. Closed stations are hidden by default.
+- **Nearest petrol** opens a **recommendation list** ranked by saved brand order (e.g. Shell → BP), preferred octane (98 / 100), open status, then distance. Search radius **adapts to context** — tighter in cities (2–10 km), wider in towns/rural (20–50 km), and **highway-biased** when riding fast on motorways. **Details** shows Apple Maps place card (hours); **Go** starts in-app navigation. Stations marked closed in OSM are filtered out.
+- **Route weather** (Open-Meteo): when a route is computed, forecasts are sampled along the plan at estimated arrival times. A summary line appears under the destination banner (e.g. rain warning, temp at destination); tap for the full timeline.
 - **Open in Apple Maps** for voice guidance handoff; clear route from the dashboard banner
 
 ### Fuel & range
@@ -53,6 +54,7 @@ The app is the iOS counterpart of the Android **MotoTripTracker** project, with 
 - **Longitudinal G** from GPS speed deltas (clamped), resistant to handlebar vibration
 - **Corners** detected from bearing changes while moving
 - **Lateral G** estimated from turn radius (`v² / r`)
+- **Twistiness score** (0–100): combines corners-per-10 km with peak lateral G; ratings from *Straight* → *Flowing* → *Twisty* → *Epic twisties*. Persisted on each trip and shown live on the dashboard.
 - Speed smoothing, teleport rejection (>80 m jumps), elevation noise filtering, stop-time from near-zero speed
 
 ### History & trip meta
@@ -62,21 +64,22 @@ The app is the iOS counterpart of the Android **MotoTripTracker** project, with 
 - Empty states via `ContentUnavailableView`
 
 ### Personal leaderboard
-- Rank your own rides by **Speed** (max km/h), **Distance** (km), or **Turns** (corner count)
+- Rank your own rides by **Speed** (max km/h), **Distance** (km), **Turns** (corner count), or **Twistiness** (composite score)
 - Segmented categories; tap a row to open the same ride **summary** as History
 - Gold / silver / bronze badges for the top three ranks
 
 ### Summary & sharing
-- Stats overview and **Ride Moments** (timed highlights: peak rush, climbs, pauses, cruise windows, twisties — distinct from Stats)
+- Stats overview (including **twistiness** rating) and **Ride Moments** (timed highlights: peak rush, climbs, pauses, cruise windows, twistiness — distinct from Stats)
 - Map preview with encoded polyline
-- **Share card** image (route map + moments) and **GPX** export
-- Open **full route** map with speed/elevation layers, profile chart, and waypoints
+- **Share card** image: route map, stats strip (max speed, twistiness, corners, moving time), and top moments; plus **GPX** export
+- **Replay route** from summary menu — opens the full route view with playback controls
 
-### Full route map
+### Full route map & replay
 - MapKit route polyline colored by speed or elevation
 - Segmented Speed / Elevation layers
 - Elevation or speed profile chart
 - Waypoints (start/end, top speed, summit, stops, etc.) with reverse-geocoded labels where available
+- **Route replay**: play / pause / scrub timeline at 1×–4× speed; map follows the rider with traveled vs remaining route highlighted; live speed readout during playback
 
 ### UI & theming
 - Ride dashboard uses a **HUD-style** layout (hidden nav bar, map overlays) rather than a classic toolbar screen
@@ -117,6 +120,8 @@ flowchart TB
     TripMgr[TripManager]
     Filters[SpeedFilter StopDetector SpeedSmoother ElevationSmoother]
     Physics[GForceTracker CornerDetector]
+    Twist[TwistinessCalculator]
+    Replay[RouteReplayEngine]
     Moments[RideMomentsCalculator]
   end
 
@@ -124,6 +129,9 @@ flowchart TB
     Loc[LocationService]
     SpeedLim[SpeedLimitService]
     Nav[NavigationService]
+    Fuel[FuelService]
+    Weather[RouteWeatherService]
+    Petrol[PetrolStationFinder]
     Cache[SpeedLimitCacheStore]
   end
 
@@ -161,8 +169,8 @@ flowchart TB
 | --- | --- | --- |
 | **UI** | Screens, navigation, theme | `RootNavigationView`, tracker / live map / destination search / history / summary / route views, `ThemeStore` |
 | **App** | DI / composition root | `AppContainer`, `MotoTripTrackerApp` |
-| **Domain** | Ride loop, filtering, physics, moments | `TripManager`, `TripStats`, detectors / smoothers, `RideMomentsCalculator` |
-| **Services** | Platform & network | `LocationService`, `SpeedLimitService`, `NavigationService`, `FuelService`, `OSMMaxSpeedParser` |
+| **Domain** | Ride loop, filtering, physics, moments | `TripManager`, `TripStats`, detectors / smoothers, `TwistinessCalculator`, `RouteReplayEngine`, `RideMomentsCalculator` |
+| **Services** | Platform & network | `LocationService`, `SpeedLimitService`, `NavigationService`, `FuelService`, `RouteWeatherService`, `PetrolStationFinder`, `OSMMaxSpeedParser` |
 | **Data** | Persistence & export | `TripRepository`, SwiftData models, `WaypointAnalyzer`, `GpxExporter`, `PolylineEncoder` |
 | **Utilities** | Cross-cutting helpers | `AppLogger`, `RideFormatters`, `RideShareHelper` |
 
@@ -170,13 +178,13 @@ flowchart TB
 
 1. User taps **Start Ride** → `AppContainer.startRide()`
 2. `LocationService` begins GPS updates (background allowed when Always is granted)
-3. Each fix is validated (`SpeedFilter`), then fed to `TripManager`, `SpeedLimitService`, and `NavigationService` (for route ETA when a destination is set)
+3. Each fix is validated (`SpeedFilter`), then fed to `TripManager`, `SpeedLimitService`, and `NavigationService` (route ETA + weather-ahead refresh when a destination is set)
 4. `TripManager` updates `TripStats`, persists route points via `TripRepository`, and runs corner / G / elevation / stop logic
 5. **Stop** finalizes the trip (or deletes it if under 50 m), encodes a polyline, and runs waypoint analysis asynchronously
 
 ### Persistence (SwiftData)
 
-- **`Trip`**: aggregate stats, title, favorite, polyline, lateral G, corner count
+- **`Trip`**: aggregate stats, title, favorite, polyline, lateral G, corner count, twistiness score
 - **`RoutePoint`**: lat/lon/altitude/speed/timestamp + optional waypoint metadata  
   Cascade-deleted with the parent trip
 
@@ -207,7 +215,7 @@ MotoTripTracker/
 ├── Services/                     # Location, Overpass speed limits, navigation, Live Activity / widget publishers
 ├── UI/
 │   ├── Navigation/
-│   ├── Tracker/                  # RideTrackerView, LiveRideMapView, DestinationSearchView
+│   ├── Tracker/                  # RideTrackerView, LiveRideMapView, DestinationSearchView, PetrolStationsView, RouteWeatherView, FuelSettingsView
 │   ├── History/
 │   ├── Leaderboard/
 │   ├── Summary/
@@ -231,6 +239,8 @@ MotoTripTrackerUITests/           # UI test targets
 | Persistence | SwiftData |
 | Location | Core Location (background mode: `location`) |
 | Speed limits | Overpass API (OpenStreetMap) — no Google Maps API key |
+| Petrol stations | Overpass (fuel + opening hours) + MapKit enrichment |
+| Route weather | Open-Meteo forecast API (no API key) |
 | Maps | Apple MapKit (system; no Maps API key required for native display) |
 | Widgets / Live Activities | WidgetKit + ActivityKit (App Group `group.com.odys.MotoTripTracker`) |
 | Concurrency | `@MainActor`, `Task` / `async` for network & waypoint work |
