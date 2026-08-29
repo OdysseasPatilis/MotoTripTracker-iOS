@@ -13,6 +13,8 @@ final class AppContainer {
     let locationService: LocationService
     let speedLimitService: SpeedLimitService
     let navigationService: NavigationService
+    let fuelService: FuelService
+    let petrolPreferences: PetrolPreferences
     let theme: ThemeStore
 
     init(inMemory: Bool = false) {
@@ -28,6 +30,8 @@ final class AppContainer {
         self.locationService = LocationService()
         self.speedLimitService = speedLimitService
         self.navigationService = NavigationService()
+        self.fuelService = FuelService()
+        self.petrolPreferences = PetrolPreferences()
         self.theme = ThemeStore()
 
         locationService.onLocationUpdate = { [weak self] location in
@@ -35,6 +39,10 @@ final class AppContainer {
             self.tripManager.onLocationUpdate(location)
             self.speedLimitService.refresh(for: location)
             self.navigationService.updateOrigin(location.coordinate)
+            let session = self.tripManager.sessionState
+            if session.isActive, !session.isPaused {
+                self.fuelService.updateConsumedDistance(tripDistanceKm: session.stats.distanceKm)
+            }
             self.pushLiveActivityUpdate()
         }
 
@@ -47,10 +55,12 @@ final class AppContainer {
         AppLogger.app.notice("Start ride requested")
         locationService.requestAuthorization()
         speedLimitService.reset()
+        fuelService.resetRideConsumption()
         tripManager.startTrip()
         locationService.startUpdating()
         if let location = locationService.lastLocation {
             speedLimitService.refresh(for: location)
+            navigationService.updateOrigin(location.coordinate)
         }
         RideLiveActivityController.shared.start()
         pushLiveActivityUpdate(force: true)
@@ -86,13 +96,21 @@ final class AppContainer {
         let session = tripManager.sessionState
         guard session.isActive else { return }
         let nav = navigationService
+        let summary: String
+        if nav.hasDestination {
+            summary = nav.guidanceSummary
+        } else if fuelService.isLowFuel {
+            summary = "Low fuel · \(fuelService.rangeSummary)"
+        } else {
+            summary = ""
+        }
         RideLiveActivityController.shared.update(
             speedKmh: session.stats.speed,
             speedLimitKmh: speedLimitService.effectiveLimitKmh,
             distanceKm: session.stats.distanceKm,
             movingTimeSeconds: session.stats.movingTime,
             isPaused: session.isPaused,
-            navigationSummary: nav.hasDestination ? nav.summaryText : "",
+            navigationSummary: summary,
             force: force
         )
     }

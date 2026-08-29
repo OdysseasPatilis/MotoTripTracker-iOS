@@ -9,6 +9,8 @@ struct RideTrackerView: View {
     @State private var batteryLevel = BatteryReader.currentLevel()
     @State private var discardBanner: String?
     @State private var showDestinationSearch = false
+    @State private var showFuelSettings = false
+    @State private var showPetrolPicker = false
 
     private static let selectableSpeedLimits = [30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130]
 
@@ -90,6 +92,12 @@ struct RideTrackerView: View {
         .sheet(isPresented: $showDestinationSearch) {
             DestinationSearchView()
         }
+        .sheet(isPresented: $showFuelSettings) {
+            FuelSettingsView()
+        }
+        .sheet(isPresented: $showPetrolPicker) {
+            PetrolStationsView()
+        }
         .onAppear {
             batteryLevel = BatteryReader.currentLevel()
             app.locationService.requestAuthorization()
@@ -140,6 +148,17 @@ struct RideTrackerView: View {
             }
             Divider()
             Button {
+                showFuelSettings = true
+            } label: {
+                Label("Fuel & Range", systemImage: "fuelpump")
+            }
+            Button {
+                showPetrolPicker = true
+            } label: {
+                Label("Nearest Petrol", systemImage: "mappin.and.ellipse")
+            }
+            Divider()
+            Button {
                 theme.toggle()
             } label: {
                 Label("\(theme.mode.toggleLabel) Mode", systemImage: theme.mode.toggleSymbol)
@@ -159,32 +178,109 @@ struct RideTrackerView: View {
     @ViewBuilder
     private func navOverlay(colors: AppPalette) -> some View {
         let nav = app.navigationService
-        if nav.hasDestination {
-            activeRouteBanner(nav: nav, colors: colors)
-        } else {
-            Button {
-                showDestinationSearch = true
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "magnifyingglass")
-                    Text("Set destination")
-                    Spacer()
+        let fuel = app.fuelService
+        VStack(spacing: 8) {
+            if nav.hasDestination {
+                if nav.currentStep != nil || nav.isRecalculating || nav.isOffRoute {
+                    maneuverBanner(nav: nav, colors: colors)
                 }
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(colors.textSecondary)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
+                activeRouteBanner(nav: nav, colors: colors)
+            } else {
+                HStack(spacing: 8) {
+                    Button {
+                        showDestinationSearch = true
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "magnifyingglass")
+                            Text("Set destination")
+                            Spacer(minLength: 0)
+                        }
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(colors.textSecondary)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 12)
+                        .background(.ultraThinMaterial, in: Capsule())
+                    }
+
+                    Button {
+                        showPetrolPicker = true
+                    } label: {
+                        Image(systemName: "fuelpump.fill")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(fuel.isLowFuel ? colors.neonRed : colors.neonGreen)
+                            .frame(width: 44, height: 44)
+                            .background(.ultraThinMaterial, in: Circle())
+                    }
+                    .accessibilityLabel("Nearest petrol")
+                }
+
+                HStack(spacing: 6) {
+                    Image(systemName: "gauge.with.needle")
+                        .font(.caption2)
+                    Text(fuel.rangeSummary)
+                        .font(.caption.weight(.semibold))
+                    if fuel.isLowFuel {
+                        Text("· Low")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(colors.neonRed)
+                    }
+                }
+                .foregroundStyle(fuel.isLowFuel ? colors.neonRed : colors.textSecondary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
                 .background(.ultraThinMaterial, in: Capsule())
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(.horizontal, 12)
-            .padding(.bottom, 12)
         }
+        .padding(.horizontal, 12)
+        .padding(.bottom, 12)
+    }
+
+    private func maneuverBanner(nav: NavigationService, colors: AppPalette) -> some View {
+        let accent = (nav.isOffRoute || nav.isRecalculating) ? colors.routeAmber : colors.neonBlue
+        return HStack(spacing: 12) {
+            Image(systemName: maneuverSymbol(for: nav))
+                .font(.title2.weight(.bold))
+                .foregroundStyle(colors.bgDeep)
+                .frame(width: 48, height: 48)
+                .background(accent, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 2) {
+                if nav.isRecalculating {
+                    Text("Recalculating route…")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(colors.textPrimary)
+                    Text("Finding a better path")
+                        .font(.caption)
+                        .foregroundStyle(colors.textSecondary)
+                } else if nav.isOffRoute {
+                    Text("Off route")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(colors.textPrimary)
+                    Text("Hold on — recalculating")
+                        .font(.caption)
+                        .foregroundStyle(colors.textSecondary)
+                } else if let step = nav.currentStep {
+                    Text(NavigationService.formatDistance(nav.distanceToNextManeuver))
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(colors.textPrimary)
+                    Text(step.instruction)
+                        .font(.caption)
+                        .foregroundStyle(colors.textSecondary)
+                        .lineLimit(2)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     private func activeRouteBanner(nav: NavigationService, colors: AppPalette) -> some View {
         HStack(spacing: 12) {
-            Image(systemName: "arrow.triangle.turn.up.right.diamond.fill")
-                .font(.title2)
+            Image(systemName: "flag.checkered")
+                .font(.title3)
                 .foregroundStyle(colors.neonBlue)
 
             VStack(alignment: .leading, spacing: 2) {
@@ -222,8 +318,22 @@ struct RideTrackerView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .padding(.horizontal, 12)
-        .padding(.bottom, 12)
+    }
+
+    private func maneuverSymbol(for nav: NavigationService) -> String {
+        if nav.isRecalculating || nav.isOffRoute {
+            return "arrow.triangle.2.circlepath"
+        }
+        let text = (nav.currentStep?.instruction ?? "").lowercased()
+        if text.contains("u-turn") || text.contains("u turn") { return "arrow.uturn.left" }
+        if text.contains("roundabout") || text.contains("rotary") { return "arrow.triangle.2.circlepath" }
+        if text.contains("keep left") || text.contains("bear left") { return "arrow.up.left" }
+        if text.contains("keep right") || text.contains("bear right") { return "arrow.up.right" }
+        if text.contains("left") { return "arrow.turn.up.left" }
+        if text.contains("right") { return "arrow.turn.up.right" }
+        if text.contains("destination") || text.contains("arrive") { return "flag.checkered" }
+        if text.contains("straight") || text.contains("continue") { return "arrow.up" }
+        return "arrow.triangle.turn.up.right.diamond.fill"
     }
 
     private func speedometerCard(stats: TripStats, colors: AppPalette) -> some View {

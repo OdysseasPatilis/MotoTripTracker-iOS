@@ -28,9 +28,17 @@ The app is the iOS counterpart of the Android **MotoTripTracker** project, with 
 ### Navigation (destination & route)
 - **Set destination** via search sheet (`MKLocalSearchCompleter` autocomplete)
 - **Driving route** computed with `MKDirections` and drawn on the map in blue
+- **In-app turn-by-turn**: next-maneuver banner with distance, instruction, and SF Symbol; advances as you approach each step; light haptic on advance
+- **Off-route recalculation** when you stray ~80 m from the planned polyline (cooldown to avoid spam)
 - **Distance remaining** and **ETA** update as you move
-- **Open in Apple Maps** for turn-by-turn handoff; clear route from the dashboard banner
-- Scaffolded for future in-app turn-by-turn (`NavStep` / step index in `NavigationService`)
+- **Nearest petrol** opens a **recommendation list** ranked by saved brand order (e.g. Shell → BP), preferred octane (98 / 100), open status, then distance. **Details** shows Apple Maps place card (hours); **Go** starts in-app navigation. Closed stations are hidden by default.
+- **Open in Apple Maps** for voice guidance handoff; clear route from the dashboard banner
+
+### Fuel & range
+- Tank capacity, remaining liters, and L/100 km consumption (persisted)
+- **Estimated range** chip on the map; burns fuel from trip distance while riding
+- **Fill up** and low-fuel warning (under 20% or under ~40 km range)
+- Live Activity can surface low-fuel / next-maneuver text while riding
 
 ### Speed limits (OpenStreetMap / Overpass)
 - Automatic `maxspeed` lookup near your position
@@ -154,7 +162,7 @@ flowchart TB
 | **UI** | Screens, navigation, theme | `RootNavigationView`, tracker / live map / destination search / history / summary / route views, `ThemeStore` |
 | **App** | DI / composition root | `AppContainer`, `MotoTripTrackerApp` |
 | **Domain** | Ride loop, filtering, physics, moments | `TripManager`, `TripStats`, detectors / smoothers, `RideMomentsCalculator` |
-| **Services** | Platform & network | `LocationService`, `SpeedLimitService`, `NavigationService`, `OSMMaxSpeedParser` |
+| **Services** | Platform & network | `LocationService`, `SpeedLimitService`, `NavigationService`, `FuelService`, `OSMMaxSpeedParser` |
 | **Data** | Persistence & export | `TripRepository`, SwiftData models, `WaypointAnalyzer`, `GpxExporter`, `PolylineEncoder` |
 | **Utilities** | Cross-cutting helpers | `AppLogger`, `RideFormatters`, `RideShareHelper` |
 

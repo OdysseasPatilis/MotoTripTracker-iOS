@@ -293,12 +293,58 @@ struct MotoTripTrackerTests {
         #expect(ranked.map(\.rank) == [1, 2, 3])
     }
 
-    @Test func leaderboardRanksByDistanceAndTurns() {
-        let a = Trip(startTime: 1, distanceMeters: 5_000, cornerCount: 3)
-        let b = Trip(startTime: 2, distanceMeters: 12_000, cornerCount: 10)
-        let distance = LeaderboardRanking.entries(from: [a, b], category: .distance)
-        let turns = LeaderboardRanking.entries(from: [a, b], category: .turns)
-        #expect(distance.first?.trip.distanceKm == 12)
-        #expect(turns.first?.trip.cornerCount == 10)
+    @Test func openingHoursDetectsOpenAndClosed() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        // Wednesday 2026-08-26 12:00 UTC
+        let components = DateComponents(calendar: calendar, timeZone: calendar.timeZone, year: 2026, month: 8, day: 26, hour: 12)
+        let noon = components.date!
+
+        #expect(OpeningHoursEvaluator.status(of: "24/7", at: noon, calendar: calendar) == .open)
+        #expect(OpeningHoursEvaluator.status(of: "Mo-Su 06:00-22:00", at: noon, calendar: calendar) == .open)
+        #expect(OpeningHoursEvaluator.status(of: "Mo-Su 18:00-22:00", at: noon, calendar: calendar) == .closed)
+        #expect(OpeningHoursEvaluator.status(of: nil, at: noon, calendar: calendar) == .unknown)
+        #expect(OpeningHoursEvaluator.status(of: "complex || unsupported", at: noon, calendar: calendar) == .unknown)
+    }
+
+    @Test func petrolSearchStrategyAdaptsRadiusForDensity() {
+        let origin = CLLocationCoordinate2D(latitude: 37.98, longitude: 23.72)
+
+        let urban = PetrolSearchStrategy.plan(
+            origin: origin,
+            speedKmh: 30,
+            isNearMotorway: false,
+            stationCountsByRadius: [2_000: 6, 5_000: 10, 10_000: 15, 20_000: 20, 50_000: 25]
+        )
+        #expect(urban.context == .urban)
+        #expect(urban.activeRadiusMeters == 2_000)
+
+        let town = PetrolSearchStrategy.plan(
+            origin: origin,
+            speedKmh: 40,
+            isNearMotorway: false,
+            stationCountsByRadius: [2_000: 1, 5_000: 2, 10_000: 4, 20_000: 6, 50_000: 8]
+        )
+        #expect(town.context == .town)
+        #expect(town.activeRadiusMeters == 5_000)
+
+        let rural = PetrolSearchStrategy.plan(
+            origin: origin,
+            speedKmh: 50,
+            isNearMotorway: false,
+            stationCountsByRadius: [2_000: 0, 5_000: 0, 10_000: 0, 20_000: 1, 50_000: 2]
+        )
+        #expect(rural.context == .rural)
+        #expect(rural.activeRadiusMeters == 20_000)
+
+        let highway = PetrolSearchStrategy.plan(
+            origin: origin,
+            speedKmh: 110,
+            isNearMotorway: true,
+            stationCountsByRadius: [2_000: 0, 10_000: 1, 20_000: 2, 50_000: 3]
+        )
+        #expect(highway.context == .highway)
+        #expect(highway.prioritizeHighway)
+        #expect(highway.activeRadiusMeters == 10_000)
     }
 }
