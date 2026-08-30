@@ -27,7 +27,7 @@ enum WaypointAnalyzer {
         )
 
         if let topSpeedPoint = points.max(by: { $0.speedMps < $1.speedMps }),
-           topSpeedPoint.speedMps * 3.6 > 100 {
+           topSpeedPoint.speedMps * 3.6 >= 100 {
             topSpeedPoint.isWaypoint = true
             topSpeedPoint.waypointType = "TOP_SPEED"
             topSpeedPoint.waypointTitle = "Top Speed Hit"

@@ -6,6 +6,7 @@ import os
 struct RideTrackerView: View {
     @Environment(AppContainer.self) private var app
     @Environment(ThemeStore.self) private var theme
+    @Environment(\.scenePhase) private var scenePhase
     @State private var batteryLevel = BatteryReader.currentLevel()
     @State private var discardBanner: String?
     @State private var showDestinationSearch = false
@@ -52,7 +53,14 @@ struct RideTrackerView: View {
                         }
                     }
                     .overlay(alignment: .bottom) {
-                        navOverlay(colors: colors)
+                        VStack(spacing: 8) {
+                            if session.isActive, !app.locationService.hasAlwaysAuthorization {
+                                alwaysLocationBanner(colors: colors)
+                            }
+                            navOverlay(colors: colors)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.bottom, 8)
                     }
                     .clipped()
 
@@ -118,12 +126,50 @@ struct RideTrackerView: View {
                 UIApplication.shared.isIdleTimerDisabled = false
             }
         }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                app.resumeBackgroundTrackingIfNeeded()
+                UIApplication.shared.isIdleTimerDisabled = session.isActive
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: UIDevice.batteryLevelDidChangeNotification)) { _ in
             batteryLevel = BatteryReader.currentLevel()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIDevice.batteryStateDidChangeNotification)) { _ in
             batteryLevel = BatteryReader.currentLevel()
         }
+    }
+
+    private func alwaysLocationBanner(colors: AppPalette) -> some View {
+        Button {
+            app.locationService.requestAlwaysForRideRecording()
+            // If the system already asked once, only Settings can upgrade.
+            if app.locationService.authorizationStatus == .authorizedWhenInUse {
+                app.locationService.openSystemLocationSettings()
+            }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(colors.routeAmber)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Allow Always Location")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(colors.textPrimary)
+                    Text("Recording stops when the screen locks without Always access. Tap to open Settings.")
+                        .font(.caption2)
+                        .foregroundStyle(colors.textSecondary)
+                        .multilineTextAlignment(.leading)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(colors.textSecondary)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(.plain)
     }
 
     private func topLeftHUD(colors: AppPalette) -> some View {
@@ -423,8 +469,8 @@ struct RideTrackerView: View {
             ("Total time", RideFormatters.secondsToTime(stats.tripTime), nil),
             ("Moving", RideFormatters.secondsToTime(stats.movingTime), colors.neonGreen),
             ("Stopped", RideFormatters.secondsToTime(stats.stoppedTime), colors.neonRed),
-            ("Avg speed", "\(Int(stats.avgSpeed)) km/h", nil),
-            ("Max speed", "\(Int(stats.maxSpeed)) km/h", nil),
+            ("Avg speed", "\(Int(stats.avgSpeed.rounded())) km/h", nil),
+            ("Max speed", String(format: "%.1f km/h", stats.maxSpeed), nil),
             ("Elevation", "\(Int(stats.totalElevationGain)) m", nil),
             ("Max G", String(format: "%.2f G", stats.maxGForce), colors.neonBlue),
             ("Lateral G", String(format: "%.2f G", stats.currentLateralGForce), colors.neonBlue),

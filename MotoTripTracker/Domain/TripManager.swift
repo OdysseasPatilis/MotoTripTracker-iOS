@@ -27,7 +27,6 @@ final class TripManager {
 
     private static let movingSpeedMps = 0.1
     private static let maxPlausibleSpeedKmh = 300.0
-    private static let maxStepMeters: CLLocationDistance = 80
     static let minSaveDistanceMeters: Double = 50
 
     init(repository: TripRepository, gForceTracker: GForceTracker? = nil) {
@@ -110,6 +109,7 @@ final class TripManager {
         let currentSpeedMps = speedFilter.processedSpeed(from: location)
         let currentTime = location.timestamp.timeIntervalSince1970
         let isMoving = currentSpeedMps > Self.movingSpeedMps
+        let rawSpeedKmh = currentSpeedMps * 3.6
 
         let displaySpeedKmh: Double
         if isMoving {
@@ -119,8 +119,8 @@ final class TripManager {
             displaySpeedKmh = 0
         }
 
-        if isMoving, displaySpeedKmh >= 0, displaySpeedKmh <= Self.maxPlausibleSpeedKmh {
-            sessionMaxSpeedKmh = max(sessionMaxSpeedKmh, displaySpeedKmh)
+        if isMoving, rawSpeedKmh >= 0, rawSpeedKmh <= Self.maxPlausibleSpeedKmh {
+            sessionMaxSpeedKmh = max(sessionMaxSpeedKmh, rawSpeedKmh)
         }
 
         if isMoving {
@@ -136,11 +136,15 @@ final class TripManager {
             }
             if isMoving {
                 let step = prev.distance(from: location)
-                if step >= 0, step <= Self.maxStepMeters {
-                    distanceDelta = step
-                } else if step > Self.maxStepMeters {
+                let timeDelta = max(0, location.timestamp.timeIntervalSince(prev.timestamp))
+                distanceDelta = RideDistanceFilter.distanceDelta(
+                    geographicMeters: step,
+                    speedMps: currentSpeedMps,
+                    timeDelta: timeDelta
+                )
+                if step > 0, distanceDelta == 0 {
                     AppLogger.trip.warning(
-                        "Rejected GPS teleport step=\(step, format: .fixed(precision: 1))m (max \(Self.maxStepMeters)m)"
+                        "Rejected GPS step=\(step, format: .fixed(precision: 1))m spd=\(currentSpeedMps, format: .fixed(precision: 1))m/s Δt=\(timeDelta, format: .fixed(precision: 1))s"
                     )
                 }
             }
@@ -157,9 +161,11 @@ final class TripManager {
 
         gForceTracker.update(speedMps: currentSpeedMps, timestamp: currentTime)
 
-        let movingHours = Double(newMoving) / 3600
-        let totalKm = (stats.distanceMeters + distanceDelta) / 1000
-        let newAvgSpeed = movingHours > 0 ? totalKm / movingHours : 0
+        let newAvgSpeed = RideDistanceFilter.averageSpeedKmh(
+            distanceMeters: stats.distanceMeters + distanceDelta,
+            movingTimeSeconds: newMoving,
+            maxSpeedKmh: max(sessionMaxSpeedKmh, rawSpeedKmh)
+        )
         let lateralCurrent = cornerDetector.lastEstimatedLateralG
         let maxLateral = max(stats.maxLateralGForce, cornerDetector.maxEstimatedLateralG)
 
@@ -222,14 +228,17 @@ final class TripManager {
             finalStopped += stoppedDeltaMs / 1000
         }
 
-        let movingHours = Double(finalMoving) / 3600
-        let totalKm = stats.distanceMeters / 1000
         stats.speed = 0
         stats.currentGForce = 0
         stats.currentLateralGForce = 0
         stats.movingTime = finalMoving
         stats.stoppedTime = finalStopped
-        stats.avgSpeed = movingHours > 0 ? totalKm / movingHours : 0
+        stats.maxSpeed = max(stats.maxSpeed, sessionMaxSpeedKmh)
+        stats.avgSpeed = RideDistanceFilter.averageSpeedKmh(
+            distanceMeters: stats.distanceMeters,
+            movingTimeSeconds: finalMoving,
+            maxSpeedKmh: stats.maxSpeed
+        )
         stats.cornerCount = cornerDetector.cornerCount
         stats.maxLateralGForce = max(stats.maxLateralGForce, cornerDetector.maxEstimatedLateralG)
 

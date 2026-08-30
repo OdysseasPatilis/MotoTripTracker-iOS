@@ -24,6 +24,7 @@ struct FullRouteView: View {
     @State private var playbackRate: Double = 1
     @State private var replayAnchor = Date()
     @State private var replayStartElapsed: TimeInterval = 0
+    @State private var selectedWaypointID: UUID?
 
     private var replayEngine: RouteReplayEngine { RouteReplayEngine(points: points) }
     private var replayFrame: RouteReplayFrame? { replayEngine.frame(at: replayElapsed) }
@@ -31,64 +32,73 @@ struct FullRouteView: View {
     var body: some View {
         let colors = theme.palette
 
-        List {
-            if replayEngine.isValid {
-                Section("Replay") {
-                    replayControls(colors: colors)
-                        .listRowBackground(colors.bgCard)
-                }
-            }
-
-            Section {
-                Picker("Layer", selection: $selectedLayer) {
-                    ForEach(MapLayer.allCases) { layer in
-                        Text(layer.rawValue).tag(layer)
+        ScrollViewReader { proxy in
+            List {
+                if replayEngine.isValid {
+                    Section("Replay") {
+                        replayControls(colors: colors)
+                            .listRowBackground(colors.bgCard)
                     }
                 }
-                .pickerStyle(.segmented)
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
-            }
 
-            Section {
-                routeMap(colors: colors)
-                    .frame(height: 300)
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
-                    .id(selectedLayer)
-            }
-
-            Section {
-                profileChart(colors: colors)
-                    .listRowBackground(Color.clear)
-                legendCaption(colors: colors)
-                    .listRowBackground(Color.clear)
-            }
-
-            if !waypoints.isEmpty {
-                Section("Waypoints") {
-                    ForEach(waypoints, id: \.id) { waypoint in
-                        HStack(spacing: 12) {
-                            Image(systemName: iconName(for: waypoint.waypointType))
-                                .foregroundStyle(markerColor(for: waypoint.waypointType, colors: colors))
-                                .frame(width: 24)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(waypoint.waypointTitle)
-                                    .font(.body.weight(.medium))
-                                    .foregroundStyle(colors.textPrimary)
-                                Text(waypoint.waypointSubtitle)
-                                    .font(.caption)
-                                    .foregroundStyle(colors.textSecondary)
-                            }
+                Section {
+                    Picker("Layer", selection: $selectedLayer) {
+                        ForEach(MapLayer.allCases) { layer in
+                            Text(layer.rawValue).tag(layer)
                         }
-                        .padding(.vertical, 2)
                     }
+                    .pickerStyle(.segmented)
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
+                }
+
+                Section {
+                    routeMap(colors: colors)
+                        .frame(height: 300)
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
+                        .id(selectedLayer)
+                }
+                .id("route-map")
+
+                Section {
+                    profileChart(colors: colors)
+                        .listRowBackground(Color.clear)
+                    legendCaption(colors: colors)
+                        .listRowBackground(Color.clear)
+                }
+
+                if !waypoints.isEmpty {
+                    Section("Waypoints") {
+                        ForEach(waypoints, id: \.id) { waypoint in
+                            waypointRow(waypoint, colors: colors)
+                                .id(waypoint.id)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    selectWaypoint(waypoint)
+                                    withAnimation(.easeInOut(duration: 0.3)) {
+                                        proxy.scrollTo("route-map", anchor: .center)
+                                    }
+                                }
+                                .listRowBackground(
+                                    selectedWaypointID == waypoint.id
+                                        ? colors.neonBlue.opacity(0.14)
+                                        : colors.bgCard
+                                )
+                        }
+                    }
+                }
+            }
+            .listStyle(.insetGrouped)
+            .scrollContentBackground(.hidden)
+            .background(colors.bgDeep.ignoresSafeArea())
+            .onChange(of: selectedWaypointID) { _, newID in
+                guard let newID else { return }
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    proxy.scrollTo(newID, anchor: .center)
                 }
             }
         }
-        .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(colors.bgDeep.ignoresSafeArea())
         .navigationTitle("Route")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
@@ -98,7 +108,7 @@ struct FullRouteView: View {
             isReplaying = false
         }
         .onChange(of: replayElapsed) { _, elapsed in
-            guard let frame = replayEngine.frame(at: elapsed) else { return }
+            guard isReplaying, let frame = replayEngine.frame(at: elapsed) else { return }
             withAnimation(.easeInOut(duration: 0.2)) {
                 cameraPosition = .region(
                     MKCoordinateRegion(
@@ -115,6 +125,45 @@ struct FullRouteView: View {
             if replayElapsed >= replayEngine.duration {
                 isReplaying = false
             }
+        }
+    }
+
+    private func waypointRow(_ waypoint: RoutePoint, colors: AppPalette) -> some View {
+        let isSelected = selectedWaypointID == waypoint.id
+        return HStack(spacing: 12) {
+            Image(systemName: iconName(for: waypoint.waypointType))
+                .foregroundStyle(markerColor(for: waypoint.waypointType, colors: colors))
+                .frame(width: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(waypoint.waypointTitle)
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(colors.textPrimary)
+                Text(waypoint.waypointSubtitle)
+                    .font(.caption)
+                    .foregroundStyle(colors.textSecondary)
+            }
+            Spacer(minLength: 0)
+            if isSelected {
+                Image(systemName: "mappin.and.ellipse")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(colors.neonBlue)
+            }
+        }
+        .padding(.vertical, 2)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private func selectWaypoint(_ waypoint: RoutePoint) {
+        isReplaying = false
+        selectedWaypointID = waypoint.id
+        let coordinate = CLLocationCoordinate2D(latitude: waypoint.latitude, longitude: waypoint.longitude)
+        withAnimation(.easeInOut(duration: 0.35)) {
+            cameraPosition = .region(
+                MKCoordinateRegion(
+                    center: coordinate,
+                    span: MKCoordinateSpan(latitudeDelta: 0.008, longitudeDelta: 0.008)
+                )
+            )
         }
     }
 
@@ -236,6 +285,7 @@ struct FullRouteView: View {
                 }
             }
             ForEach(waypoints, id: \.id) { waypoint in
+                let isSelected = selectedWaypointID == waypoint.id
                 Annotation(
                     waypoint.waypointTitle,
                     coordinate: CLLocationCoordinate2D(
@@ -243,11 +293,31 @@ struct FullRouteView: View {
                         longitude: waypoint.longitude
                     )
                 ) {
-                    Image(systemName: iconName(for: waypoint.waypointType))
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(.white)
-                        .padding(6)
-                        .background(markerColor(for: waypoint.waypointType, colors: colors), in: Circle())
+                    Button {
+                        selectWaypoint(waypoint)
+                    } label: {
+                        ZStack {
+                            if isSelected {
+                                Circle()
+                                    .fill(markerColor(for: waypoint.waypointType, colors: colors).opacity(0.28))
+                                    .frame(width: 44, height: 44)
+                            }
+                            Image(systemName: iconName(for: waypoint.waypointType))
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(.white)
+                                .padding(isSelected ? 9 : 6)
+                                .background(
+                                    markerColor(for: waypoint.waypointType, colors: colors),
+                                    in: Circle()
+                                )
+                                .overlay(
+                                    Circle()
+                                        .stroke(isSelected ? colors.neonBlue : .clear, lineWidth: 2)
+                                )
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(waypoint.waypointTitle)
                 }
             }
         }

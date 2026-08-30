@@ -346,6 +346,35 @@ struct MotoTripTrackerTests {
         #expect(abs((parsed ?? .distantPast).timeIntervalSince(expected)) < 1)
     }
 
+    @Test func rideDistanceFilterClampsGpsJitter() {
+        // 1 Hz fix at 100 km/h ≈ 27.8 m; 80 m wander must not count as 288 km/h.
+        let clamped = RideDistanceFilter.distanceDelta(
+            geographicMeters: 80,
+            speedMps: 100 / 3.6,
+            timeDelta: 1
+        )
+        #expect(clamped < 45)
+        #expect(clamped > 20)
+
+        let highwayGap = RideDistanceFilter.distanceDelta(
+            geographicMeters: 320,
+            speedMps: 110 / 3.6,
+            timeDelta: 10
+        )
+        #expect(highwayGap > 250)
+        #expect(highwayGap <= 320)
+    }
+
+    @Test func averageSpeedCannotExceedMax() {
+        let avg = RideDistanceFilter.averageSpeedKmh(
+            distanceMeters: 46_000,
+            movingTimeSeconds: 8 * 60,
+            maxSpeedKmh: 103.3
+        )
+        #expect(avg <= 103.3)
+        #expect(avg > 0)
+    }
+
     @Test func petrolSearchStrategyAdaptsRadiusForDensity() {
         let origin = CLLocationCoordinate2D(latitude: 37.98, longitude: 23.72)
 

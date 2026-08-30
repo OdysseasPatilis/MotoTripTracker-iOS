@@ -4,8 +4,9 @@ import Foundation
 final class StopDetector: @unchecked Sendable {
     private var lastUpdateTime: TimeInterval = 0
 
-    /// Gaps > 5 min are ignored (tunnel / sleep / background kill).
-    private let maxValidDeltaSeconds: TimeInterval = 300
+    /// Gaps > 20 min are ignored (app kill / multi-hour pause without GPS).
+    /// Shorter gaps (tunnels, brief background) still count toward moving/stopped time.
+    private let maxValidDeltaSeconds: TimeInterval = 1_200
 
     func reset() {
         lastUpdateTime = 0

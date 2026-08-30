@@ -13,9 +13,9 @@ The app is the iOS counterpart of the Android **MotoTripTracker** project, with 
 - **Live map** with follow-camera and 3D pitch while riding; gentle top-down view when idle
 - **Traveled trail** drawn on the map as a mint polyline during the session
 - **Start / pause / resume / stop** with keep-screen-on while riding
-- **Background location** (Always authorization) so recording continues with the screen locked
+- **Background location** (Always authorization) so recording continues with the screen locked. **When In Use only is not enough** — without Always, GPS stops on lock and the ride clock freezes (Live Activity can still appear with stale stats). The dashboard warns and links to Settings if Always is missing.
 - **Neon glow speedometer** (270° ring with blurred underlay) and centered European-style speed-limit badge
-- **Dashboard metrics**: distance, moving/stopped time, avg/max speed, elevation gain, longitudinal G, lateral G, **twistiness score** (0–100 from corner density + lateral G)
+- **Dashboard metrics**: distance, moving/stopped time, avg/max speed (max from raw GPS, avg capped by peak and based on speed-consistent distance), elevation gain, longitudinal G, lateral G, **twistiness score** (0–100 from corner density + lateral G)
 - **GPS quality** and **battery** as floating chips on the map; **Options** menu (History, Leaderboard, theme) hidden while riding so it does not overlap the map compass
 - Short rides under **50 m** are discarded automatically
 

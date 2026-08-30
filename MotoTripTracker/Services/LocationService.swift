@@ -1,6 +1,7 @@
 import CoreLocation
 import Foundation
 import os
+import UIKit
 
 @Observable
 @MainActor
@@ -19,6 +20,11 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
 
     private var isUpdating = false
 
+    /// Background ride recording only works with Always authorization.
+    var hasAlwaysAuthorization: Bool {
+        authorizationStatus == .authorizedAlways
+    }
+
     override init() {
         super.init()
         // Don't call locationServicesEnabled() — Apple warns it can block the main thread.
@@ -27,7 +33,7 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
         authorizationStatus = status
         isLocationEnabled = Self.isAuthorized(status)
         manager.delegate = self
-        manager.desiredAccuracy = kCLLocationAccuracyBest
+        manager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
         manager.distanceFilter = kCLDistanceFilterNone
         manager.activityType = .automotiveNavigation
         manager.pausesLocationUpdatesAutomatically = false
@@ -48,6 +54,19 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
         }
     }
 
+    /// Call when starting a ride — upgrades When In Use → Always if possible.
+    func requestAlwaysForRideRecording() {
+        requestAuthorization()
+        if authorizationStatus == .authorizedWhenInUse {
+            manager.requestAlwaysAuthorization()
+        }
+    }
+
+    func openSystemLocationSettings() {
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        UIApplication.shared.open(url)
+    }
+
     func startUpdating() {
         guard !isUpdating else {
             configureBackgroundUpdatesIfAllowed()
@@ -58,7 +77,7 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
         configureBackgroundUpdatesIfAllowed()
         startIfAuthorized()
         AppLogger.location.notice(
-            "Location updates requested (authorized=\(self.isLocationEnabled), background=\(self.manager.allowsBackgroundLocationUpdates))"
+            "Location updates requested (authorized=\(self.isLocationEnabled), always=\(self.hasAlwaysAuthorization), background=\(self.manager.allowsBackgroundLocationUpdates))"
         )
     }
 
@@ -81,7 +100,11 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
 
     private func configureBackgroundUpdatesIfAllowed() {
         // Setting this without Always authorization crashes.
-        manager.allowsBackgroundLocationUpdates = (authorizationStatus == .authorizedAlways)
+        let always = authorizationStatus == .authorizedAlways
+        manager.allowsBackgroundLocationUpdates = always
+        if always {
+            manager.showsBackgroundLocationIndicator = true
+        }
     }
 
     private static func isAuthorized(_ status: CLAuthorizationStatus) -> Bool {

@@ -67,7 +67,7 @@ final class AppContainer {
 
     func startRide() {
         AppLogger.app.notice("Start ride requested")
-        locationService.requestAuthorization()
+        locationService.requestAlwaysForRideRecording()
         speedLimitService.reset()
         fuelService.resetRideConsumption()
         tripManager.startTrip()
@@ -77,6 +77,23 @@ final class AppContainer {
             navigationService.updateOrigin(location.coordinate)
         }
         RideLiveActivityController.shared.start()
+        pushLiveActivityUpdate(force: true)
+        if !locationService.hasAlwaysAuthorization {
+            AppLogger.app.warning(
+                "Ride started without Always location — recording will stop when the screen locks"
+            )
+        }
+    }
+
+    /// Call when the app returns to the foreground during an active ride.
+    func resumeBackgroundTrackingIfNeeded() {
+        guard tripManager.sessionState.isActive else { return }
+        locationService.requestAlwaysForRideRecording()
+        locationService.startUpdating()
+        if let location = locationService.lastLocation {
+            speedLimitService.refresh(for: location)
+            navigationService.updateOrigin(location.coordinate)
+        }
         pushLiveActivityUpdate(force: true)
     }
 
