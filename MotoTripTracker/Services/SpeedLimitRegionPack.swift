@@ -3,7 +3,7 @@ import Foundation
 import os
 
 /// Bundled offline speed-limit grid for a geographic region (e.g. Greater Athens).
-struct SpeedLimitRegionPack: Sendable {
+nonisolated struct SpeedLimitRegionPack: Sendable {
     let id: String
     let name: String
     let version: Int
@@ -49,7 +49,7 @@ struct SpeedLimitRegionPack: Sendable {
     }
 }
 
-enum SpeedLimitRegionPackStore {
+nonisolated enum SpeedLimitRegionPackStore {
     /// Bundled packs shipped with the app. First matching bbox wins.
     static let bundled: [SpeedLimitRegionPack] = {
         ["athens_speed_limits"].compactMap { loadBundled(named: $0) }

@@ -1,5 +1,6 @@
 import CoreLocation
 import Foundation
+import MapKit
 import os
 
 enum WaypointAnalyzer {
@@ -107,19 +108,26 @@ enum WaypointAnalyzer {
     private static func streetName(latitude: Double, longitude: Double) async -> String {
         let fallback = String(format: "%.4f° N, %.4f° E", latitude, longitude)
         let location = CLLocation(latitude: latitude, longitude: longitude)
-        let geocoder = CLGeocoder()
+        guard let request = MKReverseGeocodingRequest(location: location) else {
+            return fallback
+        }
         do {
-            let placemarks = try await geocoder.reverseGeocodeLocation(location)
-            if let placemark = placemarks.first {
-                let name = placemark.thoroughfare
-                    ?? placemark.subLocality
-                    ?? placemark.locality
+            let mapItems = try await request.mapItems
+            if let mapItem = mapItems.first {
+                let name = mapItem.name
+                    ?? mapItem.address?.shortAddress
+                    ?? mapItem.addressRepresentations?.cityWithContext
+                    ?? mapItem.addressRepresentations?.cityName
                     ?? fallback
-                AppLogger.waypoint.debug("Geocoded @ \(AppLogger.coordinate(latitude, longitude), privacy: .public) → \(name, privacy: .public)")
+                AppLogger.waypoint.debug(
+                    "Geocoded @ \(AppLogger.coordinate(latitude, longitude), privacy: .public) → \(name, privacy: .public)"
+                )
                 return name
             }
         } catch {
-            AppLogger.waypoint.debug("Geocoder failed @ \(AppLogger.coordinate(latitude, longitude), privacy: .public): \(error.localizedDescription, privacy: .public)")
+            AppLogger.waypoint.debug(
+                "Geocoder failed @ \(AppLogger.coordinate(latitude, longitude), privacy: .public): \(error.localizedDescription, privacy: .public)"
+            )
         }
         return fallback
     }

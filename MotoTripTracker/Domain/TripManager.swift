@@ -27,7 +27,8 @@ final class TripManager {
 
     private static let movingSpeedMps = 0.1
     private static let maxPlausibleSpeedKmh = 300.0
-    static let minSaveDistanceMeters: Double = 50
+    /// Readable from default-parameter evaluation (nonisolated) under MainActor isolation.
+    nonisolated static let minSaveDistanceMeters: Double = 50
 
     init(repository: TripRepository, gForceTracker: GForceTracker? = nil) {
         self.repository = repository

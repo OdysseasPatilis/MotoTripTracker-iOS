@@ -160,7 +160,7 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
                 return
             }
             guard let item = response?.mapItems.first else { return }
-            let coordinate = item.placemark.coordinate
+            let coordinate = MapKitPlace.coordinate(of: item)
             let name = item.name ?? fallbackName
             Task { @MainActor in
                 self.setDestination(coordinate: coordinate, name: name)
@@ -362,7 +362,7 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
             let here = CLLocation(latitude: origin.latitude, longitude: origin.longitude)
             let best = response.mapItems
                 .map { item -> (MKMapItem, CLLocationDistance) in
-                    let coord = item.placemark.coordinate
+                    let coord = MapKitPlace.coordinate(of: item)
                     let distance = here.distance(
                         from: CLLocation(latitude: coord.latitude, longitude: coord.longitude)
                     )
@@ -373,7 +373,7 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
 
             guard let best else { return .noneNearby }
             let name = best.0.name ?? "Petrol station"
-            setDestination(coordinate: best.0.placemark.coordinate, name: name)
+            setDestination(coordinate: MapKitPlace.coordinate(of: best.0), name: name)
             return .found
         } catch {
             AppLogger.navigation.error("Petrol MapKit search failed: \(error.localizedDescription, privacy: .public)")
@@ -383,8 +383,7 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
 
     func openInAppleMaps() {
         guard let destinationCoordinate else { return }
-        let item = MKMapItem(placemark: MKPlacemark(coordinate: destinationCoordinate))
-        item.name = destinationName
+        let item = MapKitPlace.mapItem(coordinate: destinationCoordinate, name: destinationName)
         item.openInMaps(launchOptions: [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving])
     }
 
@@ -421,8 +420,8 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
         }
 
         let request = MKDirections.Request()
-        request.source = MKMapItem(placemark: MKPlacemark(coordinate: origin))
-        request.destination = MKMapItem(placemark: MKPlacemark(coordinate: destinationCoordinate))
+        request.source = MapKitPlace.mapItem(coordinate: origin)
+        request.destination = MapKitPlace.mapItem(coordinate: destinationCoordinate)
         request.transportType = .automobile
 
         MKDirections(request: request).calculate { response, error in

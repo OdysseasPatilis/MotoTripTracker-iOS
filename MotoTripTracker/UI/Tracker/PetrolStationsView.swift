@@ -84,8 +84,7 @@ struct PetrolStationsView: View {
         let rec = station.recommendation
         let prefs = app.petrolPreferences
         let stars = rec.preferenceMatchStars(preferences: prefs)
-        let address = station.mapItem?.placemark.thoroughfare
-            ?? station.mapItem?.placemark.locality
+        let address = station.mapItem.flatMap(MapKitPlace.shortAddress(of:))
 
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 12) {
@@ -151,9 +150,7 @@ struct PetrolStationsView: View {
                     if let item = station.mapItem {
                         detailItem = item
                     } else {
-                        let item = MKMapItem(placemark: MKPlacemark(coordinate: rec.coordinate))
-                        item.name = rec.name
-                        detailItem = item
+                        detailItem = MapKitPlace.mapItem(coordinate: rec.coordinate, name: rec.name)
                     }
                 } label: {
                     Text("Details")

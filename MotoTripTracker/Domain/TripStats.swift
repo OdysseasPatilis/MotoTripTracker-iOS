@@ -1,6 +1,6 @@
 import Foundation
 
-enum GpsQuality: String, Equatable, Sendable {
+nonisolated enum GpsQuality: String, Equatable, Sendable {
     case unknown
     case excellent
     case good
@@ -49,7 +49,7 @@ enum GpsQuality: String, Equatable, Sendable {
     }
 }
 
-struct TripStats: Equatable, Sendable {
+nonisolated struct TripStats: Equatable, Sendable {
     var speed: Double = 0
     var distanceMeters: Double = 0
     var tripStartTime: TimeInterval = 0

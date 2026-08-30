@@ -2,7 +2,8 @@ import Foundation
 import os
 
 /// Unified logging for MotoTripTracker — filter by category in Console.app.
-enum AppLogger {
+/// `nonisolated` so delegate / background callbacks can log under default MainActor isolation.
+nonisolated enum AppLogger {
     private static let subsystem = Bundle.main.bundleIdentifier ?? "com.odys.MotoTripTracker"
 
     static let app = Logger(subsystem: subsystem, category: "App")
@@ -36,7 +37,7 @@ enum AppLogger {
     }
 
     static func uuidShort(_ id: UUID) -> String {
-        id.uuidString.prefix(8).uppercased()
+        String(id.uuidString.prefix(8)).uppercased()
     }
 }
 

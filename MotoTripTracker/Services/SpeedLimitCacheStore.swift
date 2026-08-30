@@ -1,7 +1,7 @@
 import Foundation
 
 /// Persists grid-keyed speed limits so rides can reuse nearby values offline.
-final class SpeedLimitCacheStore: @unchecked Sendable {
+nonisolated final class SpeedLimitCacheStore: @unchecked Sendable {
     private let defaults: UserDefaults
     private let key = "moto_speed_limit_grid_cache"
     private let maxEntries = 2_000

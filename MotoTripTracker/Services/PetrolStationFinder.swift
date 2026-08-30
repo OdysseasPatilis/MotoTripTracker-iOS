@@ -168,7 +168,7 @@ final class PetrolStationFinder {
         if ranked.isEmpty {
             ranked = mapItems
                 .map { item -> RankedStation? in
-                    let coord = item.placemark.coordinate
+                    let coord = MapKitPlace.coordinate(of: item)
                     let distance = here.distance(from: CLLocation(latitude: coord.latitude, longitude: coord.longitude))
                     guard distance <= Double(plan.activeRadiusMeters) else { return nil }
                     let recommendation = PetrolStationRecommendation(
@@ -285,7 +285,7 @@ final class PetrolStationFinder {
         let here = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
         return items
             .map { item -> (MKMapItem, CLLocationDistance) in
-                let c = item.placemark.coordinate
+                let c = MapKitPlace.coordinate(of: item)
                 let d = here.distance(from: CLLocation(latitude: c.latitude, longitude: c.longitude))
                 return (item, d)
             }
@@ -296,9 +296,7 @@ final class PetrolStationFinder {
     }
 
     private func makeMapItem(name: String, coordinate: CLLocationCoordinate2D) -> MKMapItem {
-        let item = MKMapItem(placemark: MKPlacemark(coordinate: coordinate))
-        item.name = name
-        return item
+        MapKitPlace.mapItem(coordinate: coordinate, name: name)
     }
 
     // MARK: - Geometry
