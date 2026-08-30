@@ -2,6 +2,7 @@ import Combine
 import CoreLocation
 import MapKit
 import SwiftUI
+import UIKit
 
 enum MapLayer: String, CaseIterable, Identifiable {
     case speed = "Speed"
@@ -409,7 +410,7 @@ struct FullRouteView: View {
 
     private func legendCaption(colors: AppPalette) -> some View {
         let text: String = selectedLayer == .speed
-            ? "Slow 0–40 · Cruise 40–130 · Fast 130+ km/h"
+            ? "Slower → Faster"
             : "Low · Mid · High elevation thirds"
         return Text(text)
             .font(.caption)
@@ -427,6 +428,9 @@ struct FullRouteView: View {
         let altitudes = points.map(\.altitude)
         let minE = altitudes.min() ?? 0
         let maxE = altitudes.max() ?? 0
+        let speedsKmh = points.map { $0.speedMps * 3.6 }
+        let minS = speedsKmh.min() ?? 0
+        let maxS = speedsKmh.max() ?? 0
 
         var result: [RouteSegment] = []
         for i in 0..<(points.count - 1) {
@@ -435,13 +439,8 @@ struct FullRouteView: View {
             let color: Color
             if selectedLayer == .speed {
                 let kmh = a.speedMps * 3.6
-                if kmh < 40 {
-                    color = colors.routeAmber
-                } else if kmh < 130 {
-                    color = colors.routeTeal
-                } else {
-                    color = colors.routeCoral
-                }
+                let t = maxS > minS ? (kmh - minS) / (maxS - minS) : 0.5
+                color = speedGradientColor(t: t, colors: colors)
             } else {
                 let elev = a.altitude
                 let t = maxE > minE ? (elev - minE) / (maxE - minE) : 0.5
@@ -458,6 +457,30 @@ struct FullRouteView: View {
             )
         }
         return result
+    }
+
+    /// Continuous teal → blue → coral by relative speed (no Slow / Cruise / Fast buckets).
+    private func speedGradientColor(t: Double, colors: AppPalette) -> Color {
+        let clamped = min(max(t, 0), 1)
+        if clamped < 0.5 {
+            return blend(colors.routeTeal, colors.neonBlue, amount: clamped * 2)
+        }
+        return blend(colors.neonBlue, colors.routeCoral, amount: (clamped - 0.5) * 2)
+    }
+
+    private func blend(_ a: Color, _ b: Color, amount: Double) -> Color {
+        let t = min(max(amount, 0), 1)
+        // Approximate blend in sRGB via UIColor for MapKit polyline strokes.
+        var ar: CGFloat = 0, ag: CGFloat = 0, ab: CGFloat = 0, aa: CGFloat = 0
+        var br: CGFloat = 0, bg: CGFloat = 0, bb: CGFloat = 0, ba: CGFloat = 0
+        UIColor(a).getRed(&ar, green: &ag, blue: &ab, alpha: &aa)
+        UIColor(b).getRed(&br, green: &bg, blue: &bb, alpha: &ba)
+        return Color(
+            red: Double(ar + (br - ar) * t),
+            green: Double(ag + (bg - ag) * t),
+            blue: Double(ab + (bb - ab) * t),
+            opacity: Double(aa + (ba - aa) * t)
+        )
     }
 
     private func iconName(for type: String?) -> String {
