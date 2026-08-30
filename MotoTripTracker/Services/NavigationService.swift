@@ -56,12 +56,23 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
     /// Distance from the rider to the end of the current maneuver.
     private(set) var distanceToNextManeuver: CLLocationDistance = 0
 
+    /// Spoken turn prompts; persisted across launches (default on).
+    var isVoiceEnabled: Bool = true {
+        didSet {
+            voice.isEnabled = isVoiceEnabled
+            if !isVoiceEnabled { voice.stop() }
+        }
+    }
+
     private let completer = MKLocalSearchCompleter()
+    private let voice = NavigationVoicePrompt()
     private var origin: CLLocationCoordinate2D?
     private var totalRouteDistance: CLLocationDistance = 0
     private var totalTravelTime: TimeInterval = 0
     private var lastRecalculateAt: Date = .distantPast
     private var nearestRouteDistance: CLLocationDistance = 0
+    private var approachedStepID: UUID?
+    private var announcedStepID: UUID?
 
     /// Called when a driving route is applied (initial or recalculated).
     var onRouteApplied: (([CLLocationCoordinate2D], TimeInterval) -> Void)?
@@ -71,12 +82,19 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
     private static let offRouteThresholdMeters: CLLocationDistance = 80
     /// Advance to the next step when within this distance of its end.
     private static let stepAdvanceMeters: CLLocationDistance = 35
+    /// Speak an approach prompt once when within this distance of the maneuver.
+    private static let approachAnnounceMeters: CLLocationDistance = 250
     private static let recalculateCooldown: TimeInterval = 12
 
     override init() {
         super.init()
+        isVoiceEnabled = voice.isEnabled
         completer.delegate = self
         completer.resultTypes = [.address, .pointOfInterest]
+    }
+
+    func toggleVoice() {
+        isVoiceEnabled.toggle()
     }
 
     /// Starts MapKit's local-search daemon so the first destination sheet isn't cold.
@@ -387,6 +405,9 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
         nearestRouteDistance = 0
         searchQuery = ""
         searchResults = []
+        approachedStepID = nil
+        announcedStepID = nil
+        voice.stop()
         onRouteCleared?()
         AppLogger.navigation.notice("Navigation cleared")
     }
@@ -446,6 +467,8 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
         self.steps = steps
         currentStepIndex = 0
         distanceToNextManeuver = steps.first?.distance ?? distance
+        approachedStepID = nil
+        announcedStepID = nil
         isRouting = false
         isRecalculating = false
         isOffRoute = false
@@ -502,6 +525,7 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
             from: CLLocation(latitude: step.endCoordinate.latitude, longitude: step.endCoordinate.longitude)
         )
         distanceToNextManeuver = toEnd
+        maybeAnnounceApproach(for: step, distanceMeters: toEnd)
 
         // Advance while we're near the maneuver point (and not on the last step).
         var index = currentStepIndex
@@ -522,6 +546,7 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
 
         if index != currentStepIndex {
             currentStepIndex = index
+            approachedStepID = nil
             if let next = currentStep {
                 distanceToNextManeuver = here.distance(
                     from: CLLocation(
@@ -530,9 +555,24 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
                     )
                 )
                 AppLogger.navigation.info("Advanced to step \(index + 1)/\(self.steps.count): \(next.instruction, privacy: .public)")
+                announceStep(next)
             }
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
         }
+    }
+
+    private func maybeAnnounceApproach(for step: NavStep, distanceMeters: CLLocationDistance) {
+        guard distanceMeters <= Self.approachAnnounceMeters else { return }
+        guard approachedStepID != step.id else { return }
+        approachedStepID = step.id
+        let distance = Self.formatDistance(distanceMeters)
+        voice.speak("In \(distance), \(step.instruction)")
+    }
+
+    private func announceStep(_ step: NavStep) {
+        guard announcedStepID != step.id else { return }
+        announcedStepID = step.id
+        voice.speak(step.instruction)
     }
 
     private func checkOffRouteAndRecalculate(from coordinate: CLLocationCoordinate2D) {

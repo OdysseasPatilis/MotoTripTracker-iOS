@@ -28,12 +28,13 @@ The app is the iOS counterpart of the Android **MotoTripTracker** project, with 
 ### Navigation (destination & route)
 - **Set destination** via search sheet (`MKLocalSearchCompleter` autocomplete)
 - **Driving route** computed with `MKDirections` and drawn on the map in blue
-- **In-app turn-by-turn**: next-maneuver banner with distance, instruction, and SF Symbol; advances as you approach each step; light haptic on advance
+- **Compact turn HUD**: next-maneuver card at the **top** of the map (distance + one-line instruction); thin bottom chip for ETA / remaining, weather, voice mute, Apple Maps, and clear — so the map stays visible while navigating
+- **Spoken turns** (`AVSpeechSynthesizer`): announces approach (~250 m) and on step advance; mute from the bottom chip; prefers a Greek voice when available. Light haptic still fires on advance
 - **Off-route recalculation** when you stray ~80 m from the planned polyline (cooldown to avoid spam)
 - **Distance remaining** and **ETA** update as you move
 - **Nearest petrol** opens a **recommendation list** ranked by saved brand order (e.g. Shell → BP), preferred octane (98 / 100), open status, then distance. Search radius **adapts to context** — tighter in cities (2–10 km), wider in towns/rural (20–50 km), and **highway-biased** when riding fast on motorways. Each card shows **Open now / Closed now / Hours unknown** (from OSM when tagged), short hours when available, **preference-match stars** (brand + octane fit — Apple Maps ratings are not readable by apps), Preferred / Highway / octane chips, and address when MapKit provides one. **Details** opens Apple’s place card; compact **Go** starts in-app navigation. Stations marked closed in OSM are filtered out.
-- **Route weather** (Open-Meteo): when a route is computed, forecasts are sampled along the plan at estimated arrival times. A summary line appears under the destination banner (e.g. rain warning, temp at destination); tap for the full timeline.
-- **Open in Apple Maps** for voice guidance handoff; clear route from the dashboard banner
+- **Route weather** (Open-Meteo): when a route is computed, forecasts are sampled along the plan at estimated arrival times. Tap the weather glyph on the bottom chip for the full timeline
+- **Open in Apple Maps** for handoff; clear route from the bottom chip
 
 ### Fuel & range
 - Tank capacity, remaining liters, and L/100 km consumption (persisted)

@@ -43,20 +43,37 @@ struct RideTrackerView: View {
             VStack(spacing: 0) {
                 LiveRideMapView()
                     .frame(height: geo.size.height * 0.46)
-                    .overlay(alignment: .topLeading) {
-                        topLeftHUD(colors: colors)
-                    }
-                    .overlay(alignment: .topTrailing) {
-                        if !isRiding {
-                            optionsMenu(colors: colors)
+                    .overlay(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(alignment: .top, spacing: 8) {
+                                topLeftHUD(colors: colors)
+                                Spacer(minLength: 0)
+                                if session.isActive, !app.locationService.hasAlwaysAuthorization {
+                                    alwaysLocationIconButton(colors: colors)
+                                }
+                                if !isRiding {
+                                    optionsMenu(colors: colors)
+                                }
+                            }
+                            if app.navigationService.hasDestination {
+                                topTurnBanner(colors: colors)
+                                    .padding(.horizontal, 10)
+                            }
                         }
+                        .padding(.top, 4)
                     }
                     .overlay(alignment: .bottom) {
-                        VStack(spacing: 8) {
-                            if session.isActive, !app.locationService.hasAlwaysAuthorization {
-                                alwaysLocationBanner(colors: colors)
+                        Group {
+                            if app.navigationService.hasDestination {
+                                activeRouteChip(colors: colors)
+                            } else {
+                                VStack(spacing: 8) {
+                                    if session.isActive, !app.locationService.hasAlwaysAuthorization {
+                                        alwaysLocationBanner(colors: colors)
+                                    }
+                                    idleNavOverlay(colors: colors)
+                                }
                             }
-                            navOverlay(colors: colors)
                         }
                         .padding(.horizontal, 10)
                         .padding(.bottom, 8)
@@ -137,6 +154,24 @@ struct RideTrackerView: View {
         .onReceive(NotificationCenter.default.publisher(for: UIDevice.batteryStateDidChangeNotification)) { _ in
             batteryLevel = BatteryReader.currentLevel()
         }
+    }
+
+    private func alwaysLocationIconButton(colors: AppPalette) -> some View {
+        Button {
+            app.locationService.requestAlwaysForRideRecording()
+            if app.locationService.authorizationStatus == .authorizedWhenInUse {
+                app.locationService.openSystemLocationSettings()
+            }
+        } label: {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(colors.routeAmber)
+                .frame(width: 42, height: 42)
+                .background(.ultraThinMaterial, in: Circle())
+        }
+        .padding(.trailing, 12)
+        .padding(.top, 12)
+        .accessibilityLabel("Allow Always Location")
     }
 
     private func alwaysLocationBanner(colors: AppPalette) -> some View {
@@ -229,90 +264,76 @@ struct RideTrackerView: View {
     }
 
     @ViewBuilder
-    private func navOverlay(colors: AppPalette) -> some View {
-        let nav = app.navigationService
+    private func idleNavOverlay(colors: AppPalette) -> some View {
         let fuel = app.fuelService
         VStack(spacing: 8) {
-            if nav.hasDestination {
-                if nav.currentStep != nil || nav.isRecalculating || nav.isOffRoute {
-                    maneuverBanner(nav: nav, colors: colors)
-                }
-                activeRouteBanner(nav: nav, colors: colors)
-            } else {
-                HStack(spacing: 8) {
-                    Button {
-                        showDestinationSearch = true
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: "magnifyingglass")
-                            Text("Set destination")
-                            Spacer(minLength: 0)
-                        }
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(colors.textSecondary)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 12)
-                        .background(.ultraThinMaterial, in: Capsule())
+            HStack(spacing: 8) {
+                Button {
+                    showDestinationSearch = true
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "magnifyingglass")
+                        Text("Set destination")
+                        Spacer(minLength: 0)
                     }
-
-                    Button {
-                        showPetrolPicker = true
-                    } label: {
-                        Image(systemName: "fuelpump.fill")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(fuel.isLowFuel ? colors.neonRed : colors.neonGreen)
-                            .frame(width: 44, height: 44)
-                            .background(.ultraThinMaterial, in: Circle())
-                    }
-                    .accessibilityLabel("Nearest petrol")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(colors.textSecondary)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .background(.ultraThinMaterial, in: Capsule())
                 }
 
-                HStack(spacing: 6) {
-                    Image(systemName: "gauge.with.needle")
-                        .font(.caption2)
-                    Text(fuel.rangeSummary)
-                        .font(.caption.weight(.semibold))
-                    if fuel.isLowFuel {
-                        Text("· Low")
-                            .font(.caption.weight(.bold))
-                            .foregroundStyle(colors.neonRed)
-                    }
+                Button {
+                    showPetrolPicker = true
+                } label: {
+                    Image(systemName: "fuelpump.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(fuel.isLowFuel ? colors.neonRed : colors.neonGreen)
+                        .frame(width: 44, height: 44)
+                        .background(.ultraThinMaterial, in: Circle())
                 }
-                .foregroundStyle(fuel.isLowFuel ? colors.neonRed : colors.textSecondary)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(.ultraThinMaterial, in: Capsule())
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityLabel("Nearest petrol")
             }
+
+            HStack(spacing: 6) {
+                Image(systemName: "gauge.with.needle")
+                    .font(.caption2)
+                Text(fuel.rangeSummary)
+                    .font(.caption.weight(.semibold))
+                if fuel.isLowFuel {
+                    Text("· Low")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(colors.neonRed)
+                }
+            }
+            .foregroundStyle(fuel.isLowFuel ? colors.neonRed : colors.textSecondary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(.ultraThinMaterial, in: Capsule())
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.horizontal, 12)
-        .padding(.bottom, 12)
+        .padding(.horizontal, 2)
     }
 
-    private func maneuverBanner(nav: NavigationService, colors: AppPalette) -> some View {
+    private func topTurnBanner(colors: AppPalette) -> some View {
+        let nav = app.navigationService
         let accent = (nav.isOffRoute || nav.isRecalculating) ? colors.routeAmber : colors.neonBlue
         return HStack(spacing: 12) {
             Image(systemName: maneuverSymbol(for: nav))
                 .font(.title2.weight(.bold))
                 .foregroundStyle(colors.bgDeep)
-                .frame(width: 48, height: 48)
+                .frame(width: 44, height: 44)
                 .background(accent, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
 
             VStack(alignment: .leading, spacing: 2) {
                 if nav.isRecalculating {
-                    Text("Recalculating route…")
+                    Text("Recalculating…")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(colors.textPrimary)
-                    Text("Finding a better path")
-                        .font(.caption)
-                        .foregroundStyle(colors.textSecondary)
                 } else if nav.isOffRoute {
                     Text("Off route")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(colors.textPrimary)
-                    Text("Hold on — recalculating")
-                        .font(.caption)
-                        .foregroundStyle(colors.textSecondary)
                 } else if let step = nav.currentStep {
                     Text(NavigationService.formatDistance(nav.distanceToNextManeuver))
                         .font(.title3.weight(.bold))
@@ -320,91 +341,90 @@ struct RideTrackerView: View {
                     Text(step.instruction)
                         .font(.caption)
                         .foregroundStyle(colors.textSecondary)
-                        .lineLimit(2)
+                        .lineLimit(1)
+                } else if nav.isRouting {
+                    Text("Calculating route…")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(colors.textPrimary)
+                } else {
+                    Text(nav.destinationName ?? "Destination")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(colors.textPrimary)
+                        .lineLimit(1)
                 }
             }
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .padding(.vertical, 8)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
-    private func activeRouteBanner(nav: NavigationService, colors: AppPalette) -> some View {
+    private func activeRouteChip(colors: AppPalette) -> some View {
+        let nav = app.navigationService
         @Bindable var weather = app.routeWeatherService
-        return VStack(spacing: 8) {
-            HStack(spacing: 12) {
-                Image(systemName: "flag.checkered")
-                    .font(.title3)
-                    .foregroundStyle(colors.neonBlue)
+        return HStack(spacing: 10) {
+            Text(nav.isRouting ? "Routing…" : nav.summaryText)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(colors.textPrimary)
+                .lineLimit(1)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(nav.destinationName ?? "Destination")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(colors.textPrimary)
-                        .lineLimit(1)
-                    Text(nav.isRouting ? "Calculating route…" : nav.summaryText)
-                        .font(.caption)
-                        .foregroundStyle(colors.textSecondary)
-                        .lineLimit(1)
-                }
-
-                Spacer(minLength: 8)
-
-                Button {
-                    nav.openInAppleMaps()
-                } label: {
-                    Image(systemName: "location.north.line.fill")
-                        .font(.headline)
-                        .foregroundStyle(colors.neonGreen)
-                        .frame(width: 36, height: 36)
-                }
-                .accessibilityLabel("Open in Apple Maps")
-
-                Button {
-                    nav.clear()
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.title3)
-                        .foregroundStyle(colors.textSecondary)
-                }
-                .accessibilityLabel("Clear destination")
-            }
+            Spacer(minLength: 4)
 
             if nav.hasRoute, !nav.isRouting {
                 Button {
                     showRouteWeather = true
                 } label: {
-                    HStack(spacing: 8) {
+                    Group {
                         if weather.isLoading {
                             ProgressView()
-                                .controlSize(.small)
+                                .controlSize(.mini)
                         } else if let first = weather.segments.first {
                             Image(systemName: first.conditionSymbol)
-                                .foregroundStyle(colors.neonBlue)
                         } else {
                             Image(systemName: "cloud.fill")
-                                .foregroundStyle(weather.lastError != nil ? colors.routeAmber : colors.neonBlue)
                         }
-                        Text(weather.summaryText)
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(
-                                weather.lastError != nil ? colors.routeAmber : colors.textSecondary
-                            )
-                            .lineLimit(2)
-                            .multilineTextAlignment(.leading)
-                        Spacer(minLength: 0)
-                        Image(systemName: "chevron.right")
-                            .font(.caption2.weight(.bold))
-                            .foregroundStyle(colors.textSecondary.opacity(0.7))
                     }
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(weather.lastError != nil ? colors.routeAmber : colors.neonBlue)
+                    .frame(width: 28, height: 28)
                 }
-                .buttonStyle(.plain)
+                .accessibilityLabel("Route weather")
             }
+
+            Button {
+                nav.toggleVoice()
+            } label: {
+                Image(systemName: nav.isVoiceEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(nav.isVoiceEnabled ? colors.neonGreen : colors.textSecondary)
+                    .frame(width: 28, height: 28)
+            }
+            .accessibilityLabel(nav.isVoiceEnabled ? "Mute voice guidance" : "Enable voice guidance")
+
+            Button {
+                nav.openInAppleMaps()
+            } label: {
+                Image(systemName: "location.north.line.fill")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(colors.neonGreen)
+                    .frame(width: 28, height: 28)
+            }
+            .accessibilityLabel("Open in Apple Maps")
+
+            Button {
+                nav.clear()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.body)
+                    .foregroundStyle(colors.textSecondary)
+            }
+            .accessibilityLabel("Clear destination")
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.ultraThinMaterial, in: Capsule())
+        .padding(.horizontal, 2)
     }
 
     private func maneuverSymbol(for nav: NavigationService) -> String {
