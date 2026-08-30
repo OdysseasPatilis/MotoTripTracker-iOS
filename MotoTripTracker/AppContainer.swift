@@ -60,9 +60,19 @@ final class AppContainer {
             self.pushLiveActivityUpdate()
         }
 
-        // Seed Home Screen widgets from existing history.
-        RideWidgetSnapshotPublisher.publish(from: repository)
+        // Widget snapshot can wait until after first frame — reloadAllTimelines is costly.
+        Task { @MainActor in
+            RideWidgetSnapshotPublisher.publish(from: repository)
+        }
         AppLogger.app.info("AppContainer ready (SwiftData + services wired)")
+    }
+
+    /// Touch frameworks that are expensive on first use so History / destination
+    /// search don't pay the cold-start cost when the user taps them.
+    func warmUpForFirstInteraction() {
+        _ = repository.allTrips()
+        navigationService.warmUpSearchCompleter()
+        AppLogger.app.debug("First-interaction warm-up complete")
     }
 
     func startRide() {

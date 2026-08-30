@@ -49,4 +49,19 @@ enum OSMMaxSpeedParser {
 
         return nil
     }
+
+    /// Greek / generic OSM defaults when a way has no `maxspeed` tag.
+    static func impliedKmh(forHighway highway: String) -> Int? {
+        switch highway {
+        case "motorway", "motorway_link": 130
+        case "trunk", "trunk_link": 110
+        case "primary", "primary_link": 90
+        case "secondary", "secondary_link": 90
+        case "tertiary", "tertiary_link": 60
+        case "unclassified", "residential": 50
+        case "living_street": 20
+        case "service": 30
+        default: nil
+        }
+    }
 }

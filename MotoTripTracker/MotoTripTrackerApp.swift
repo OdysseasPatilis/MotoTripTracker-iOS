@@ -14,11 +14,13 @@ struct MotoTripTrackerApp: App {
     var body: some Scene {
         WindowGroup {
             ZStack {
+                // Keep the real UI mounted (opacity 1) under the splash so MapKit,
+                // SwiftData, and navigation warm up during the intro instead of
+                // on the first History / destination tap.
                 RootNavigationView()
                     .environment(container)
                     .environment(container.theme)
                     .modelContainer(container.modelContainer)
-                    .opacity(showSplash ? 0 : 1)
 
                 if showSplash {
                     SplashView {
@@ -31,6 +33,9 @@ struct MotoTripTrackerApp: App {
                 }
             }
             .preferredColorScheme(container.theme.mode.colorScheme)
+            .task {
+                container.warmUpForFirstInteraction()
+            }
         }
     }
 }

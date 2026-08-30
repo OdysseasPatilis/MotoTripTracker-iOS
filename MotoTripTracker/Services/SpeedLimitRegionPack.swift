@@ -22,8 +22,9 @@ struct SpeedLimitRegionPack: Sendable {
         contains(latitude: location.coordinate.latitude, longitude: location.coordinate.longitude)
     }
 
-    /// Exact grid cell, then 8-neighbour fallback within this pack.
-    func limit(for location: CLLocation) -> Int? {
+    /// Exact grid cell, then nearby cells (~2 × ~222 m) so GPS jitter still hits the pack.
+    /// Keep the radius small so a miss can fall through to live Overpass instead of a distant street.
+    func limit(for location: CLLocation, neighbourCells: Int = 2) -> Int? {
         let lat = location.coordinate.latitude
         let lon = location.coordinate.longitude
         guard contains(latitude: lat, longitude: lon) else { return nil }
@@ -33,11 +34,15 @@ struct SpeedLimitRegionPack: Sendable {
         let key = "\(latCell)_\(lngCell)"
         if let value = cells[key] { return value }
 
-        for dLat in -1...1 {
-            for dLng in -1...1 {
-                if dLat == 0, dLng == 0 { continue }
-                let neighbour = "\(latCell + Int64(dLat))_\(lngCell + Int64(dLng))"
-                if let value = cells[neighbour] { return value }
+        guard neighbourCells >= 1 else { return nil }
+        let radius = neighbourCells
+        for ring in 1...radius {
+            for dLat in -ring...ring {
+                for dLng in -ring...ring {
+                    if max(abs(dLat), abs(dLng)) != ring { continue }
+                    let neighbour = "\(latCell + Int64(dLat))_\(lngCell + Int64(dLng))"
+                    if let value = cells[neighbour] { return value }
+                }
             }
         }
         return nil

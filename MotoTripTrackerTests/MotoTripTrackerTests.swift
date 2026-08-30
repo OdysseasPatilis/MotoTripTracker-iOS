@@ -118,6 +118,8 @@ struct MotoTripTrackerTests {
         #expect(OSMMaxSpeedParser.parseKmh("GR:motorway") == 130)
         #expect(OSMMaxSpeedParser.parseKmh("30 mph") == 48)
         #expect(OSMMaxSpeedParser.parseKmh("signals") == nil)
+        #expect(OSMMaxSpeedParser.impliedKmh(forHighway: "motorway") == 130)
+        #expect(OSMMaxSpeedParser.impliedKmh(forHighway: "residential") == 50)
     }
 
     @Test func speedSmootherAveragesWindow() {
@@ -184,6 +186,14 @@ struct MotoTripTrackerTests {
 
         // 37.9838*500 ≈ 18991.9 → trunc 18991; 23.7275*500 ≈ 11863.75 → trunc 11863
         #expect(pack.limit(for: inside) == 50)
+        // One cell north of 18991 → 18992_11863 is tagged 70
+        let neighbourCell = CLLocation(latitude: 37.985, longitude: 23.7275)
+        #expect(pack.limit(for: neighbourCell) == 70)
+        // Empty cell one south of 18991 still finds the adjacent 50
+        let emptyNeighbour = CLLocation(latitude: 37.981, longitude: 23.7275)
+        #expect(pack.limit(for: emptyNeighbour, neighbourCells: 2) == 50)
+        #expect(pack.limit(for: emptyNeighbour, neighbourCells: 0) == nil)
+        #expect(SpeedLimitRegionPackStore.limit(for: outside, packs: [pack]) == nil)
         #expect(SpeedLimitRegionPackStore.isInsideBundledRegion(inside, packs: [pack]))
         #expect(!SpeedLimitRegionPackStore.isInsideBundledRegion(outside, packs: [pack]))
     }

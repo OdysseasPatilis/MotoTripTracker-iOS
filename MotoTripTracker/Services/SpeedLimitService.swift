@@ -10,17 +10,9 @@ final class SpeedLimitService {
     private(set) var isFetching = false
     private(set) var lastUpdated: Date?
 
-    /// When set, overrides the Overpass result until cleared. Persisted across launches.
-    var manualOverrideKmh: Int? {
-        didSet { persistManualOverride() }
-    }
-
     var effectiveLimitKmh: Int {
-        manualOverrideKmh ?? autoLimitKmh ?? 50
+        autoLimitKmh ?? 50
     }
-
-    var isUsingManualOverride: Bool { manualOverrideKmh != nil }
-    var hasAutoLimit: Bool { autoLimitKmh != nil && manualOverrideKmh == nil }
 
     private var lastFetchLocation: CLLocation?
     private var lastFetchTime: Date?
@@ -30,13 +22,12 @@ final class SpeedLimitService {
     private var cacheDirty = false
     private let regionPacks: [SpeedLimitRegionPack]
 
-    private let minFetchInterval: TimeInterval = 15
-    private let minFetchDistanceMeters: CLLocationDistance = 35
-    private let queryRadiiMeters = [30, 60]
+    private let minFetchInterval: TimeInterval = 8
+    private let minFetchDistanceMeters: CLLocationDistance = 25
+    private let queryRadiiMeters = [40, 80, 160, 280]
     private let gridScale = 500.0
     private let session: URLSession
     private let cacheStore: SpeedLimitCacheStore
-    private let manualOverrideKey = "moto_manual_speed_limit"
 
     private static let endpoints = [
         "https://lz4.overpass-api.de/api/interpreter",
@@ -65,20 +56,35 @@ final class SpeedLimitService {
         self.regionPacks = regionPacks
         let loaded = cacheStore.load()
         cache = loaded.mapValues { Optional($0) }
-        let stored = UserDefaults.standard.object(forKey: manualOverrideKey) as? Int
-        if let stored, (30...130).contains(stored) {
-            manualOverrideKmh = stored
-        }
+        UserDefaults.standard.removeObject(forKey: "moto_manual_speed_limit")
         AppLogger.speedLimit.info(
             "Loaded \(loaded.count) cached speed-limit cells; \(regionPacks.count) region pack(s)"
         )
     }
 
     func refresh(for location: CLLocation) {
-        // Bundled city packs (e.g. Greater Athens) — offline only, no Overpass.
-        if SpeedLimitRegionPackStore.isInsideBundledRegion(location, packs: regionPacks) {
-            applyBundledRegionLimit(for: location)
-            return
+        // Bundled city pack first (offline). Empty cells and implausible pack
+        // hits (e.g. 50 km/h while riding at highway speed) fall through to Overpass.
+        if let hit = SpeedLimitRegionPackStore.limit(for: location, packs: regionPacks) {
+            if autoLimitKmh != hit.kmh {
+                autoLimitKmh = hit.kmh
+                lastUpdated = Date()
+                if LogThrottle.shouldLog(key: "speedLimit.pack.\(hit.pack.id)", interval: 20) {
+                    AppLogger.speedLimit.debug(
+                        "Region pack \(hit.pack.id, privacy: .public) → \(hit.kmh) km/h"
+                    )
+                }
+            }
+            if limitLooksPlausible(hit.kmh, for: location) {
+                lastFetchLocation = location
+                lastFetchTime = Date()
+                return
+            }
+            if LogThrottle.shouldLog(key: "speedLimit.packMismatch", interval: 20) {
+                AppLogger.speedLimit.info(
+                    "Pack \(hit.kmh) km/h looks low vs GPS — querying Overpass"
+                )
+            }
         }
 
         guard shouldFetch(for: location) else {
@@ -94,18 +100,17 @@ final class SpeedLimitService {
         let lon = location.coordinate.longitude
         let key = gridKey(lat: lat, lon: lon)
 
-        if let cached = cache[key] {
-            if let cached {
-                autoLimitKmh = cached
-                lastUpdated = Date()
-            }
+        if let cachedLimit = cache[key] ?? nil, limitLooksPlausible(cachedLimit, for: location) {
+            autoLimitKmh = cachedLimit
+            lastUpdated = Date()
             lastFetchLocation = location
             lastFetchTime = Date()
-            AppLogger.speedLimit.debug("Cache hit key=\(key, privacy: .public) limit=\(cached.map(String.init) ?? "none")")
+            AppLogger.speedLimit.debug("Cache hit key=\(key, privacy: .public) limit=\(cachedLimit)")
             return
         }
 
-        if let nearby = nearestCachedLimit(lat: lat, lon: lon) {
+        if let nearby = nearestCachedLimit(lat: lat, lon: lon),
+           limitLooksPlausible(nearby, for: location) {
             autoLimitKmh = nearby
             lastUpdated = Date()
             AppLogger.speedLimit.debug("Offline neighbour limit=\(nearby)")
@@ -117,41 +122,9 @@ final class SpeedLimitService {
         }
     }
 
-    private func applyBundledRegionLimit(for location: CLLocation) {
-        if let hit = SpeedLimitRegionPackStore.limit(for: location, packs: regionPacks) {
-            if autoLimitKmh != hit.kmh {
-                autoLimitKmh = hit.kmh
-                lastUpdated = Date()
-                if LogThrottle.shouldLog(key: "speedLimit.pack.\(hit.pack.id)", interval: 20) {
-                    AppLogger.speedLimit.debug(
-                        "Region pack \(hit.pack.id, privacy: .public) → \(hit.kmh) km/h"
-                    )
-                }
-            }
-            lastFetchLocation = location
-            lastFetchTime = Date()
-            return
-        }
-
-        // Inside pack bbox but no tagged cell nearby — keep last auto limit; never Overpass.
-        if LogThrottle.shouldLog(key: "speedLimit.pack.miss", interval: 30) {
-            AppLogger.speedLimit.debug(
-                "Inside region pack with no cell @ \(AppLogger.coordinate(location.coordinate.latitude, location.coordinate.longitude), privacy: .public)"
-            )
-        }
-        lastFetchLocation = location
-        lastFetchTime = Date()
-    }
-
-    func clearManualOverride() {
-        manualOverrideKmh = nil
-        AppLogger.speedLimit.info("Manual speed limit override cleared — using auto=\(self.autoLimitKmh ?? -1) km/h")
-    }
-
     func reset() {
         inFlightTask?.cancel()
         autoLimitKmh = nil
-        // Keep persisted manual preference across rides (Android ThemeStore behavior).
         lastUpdated = nil
         lastFetchLocation = nil
         lastFetchTime = nil
@@ -159,6 +132,12 @@ final class SpeedLimitService {
         cache.keys.filter { cache[$0] == nil }.forEach { cache.removeValue(forKey: $0) }
         persistCacheIfNeeded()
         AppLogger.speedLimit.debug("Speed limit service reset (kept \(self.cache.count) offline cells)")
+    }
+
+    /// True when GPS speed is not clearly above the posted limit (pack/cache may be a side street).
+    private func limitLooksPlausible(_ kmh: Int, for location: CLLocation) -> Bool {
+        guard location.speed >= 0 else { return true }
+        return location.speed * 3.6 <= Double(kmh) + 25
     }
 
     private func shouldFetch(for location: CLLocation) -> Bool {
@@ -181,8 +160,7 @@ final class SpeedLimitService {
 
         var resolved: Int?
         for radius in queryRadiiMeters {
-            if let raw = await queryNearestMaxSpeed(lat: lat, lon: lon, radiusMeters: radius),
-               let parsed = OSMMaxSpeedParser.parseKmh(raw) {
+            if let parsed = await queryNearestMaxSpeed(lat: lat, lon: lon, radiusMeters: radius) {
                 resolved = parsed
                 break
             }
@@ -190,12 +168,12 @@ final class SpeedLimitService {
 
         guard !Task.isCancelled else { return }
 
-        cache[cacheKey] = resolved
-        cacheDirty = true
         lastFetchLocation = location
         lastFetchTime = Date()
 
         if let resolved {
+            cache[cacheKey] = resolved
+            cacheDirty = true
             autoLimitKmh = resolved
             lastUpdated = Date()
             persistCacheIfNeeded()
@@ -205,19 +183,19 @@ final class SpeedLimitService {
         }
     }
 
-    private func queryNearestMaxSpeed(lat: Double, lon: Double, radiusMeters: Int) async -> String? {
+    private func queryNearestMaxSpeed(lat: Double, lon: Double, radiusMeters: Int) async -> Int? {
         let query = """
         [out:json][timeout:10];
         (
-          way(around:\(radiusMeters),\(lat),\(lon))["highway"]["maxspeed"];
+          way(around:\(radiusMeters),\(lat),\(lon))["highway"];
         );
         out tags;
         """
 
         for (rotationIndex, endpoint) in rotatedEndpoints().enumerated() {
-            if let raw = await requestMaxSpeed(endpoint: endpoint, query: query) {
+            if let parsed = await requestMaxSpeed(endpoint: endpoint, query: query) {
                 preferredEndpointIndex = (preferredEndpointIndex + rotationIndex) % Self.endpoints.count
-                return raw
+                return parsed
             }
         }
         AppLogger.speedLimit.error("All Overpass mirrors failed @ \(AppLogger.coordinate(lat, lon), privacy: .public)")
@@ -233,7 +211,7 @@ final class SpeedLimitService {
         return list
     }
 
-    private func requestMaxSpeed(endpoint: String, query: String) async -> String? {
+    private func requestMaxSpeed(endpoint: String, query: String) async -> Int? {
         guard let url = URL(string: endpoint) else { return nil }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -252,7 +230,7 @@ final class SpeedLimitService {
                 AppLogger.speedLimit.warning("Overpass HTTP \(code) from \(endpoint)")
                 return nil
             }
-            return parseBestMaxSpeed(from: data)
+            return parseBestLimit(from: data)
         } catch {
             if !Task.isCancelled {
                 AppLogger.speedLimit.warning("Overpass \(endpoint) failed: \(error.localizedDescription, privacy: .public)")
@@ -261,23 +239,29 @@ final class SpeedLimitService {
         }
     }
 
-    private func parseBestMaxSpeed(from data: Data) -> String? {
+    private func parseBestLimit(from data: Data) -> Int? {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let elements = json["elements"] as? [[String: Any]]
         else { return nil }
 
-        var bestLimit: String?
+        var bestLimit: Int?
         var bestPriority = Int.min
+        var bestHasExplicitTag = false
 
         for element in elements {
-            guard let tags = element["tags"] as? [String: String],
-                  let maxspeed = tags["maxspeed"], !maxspeed.isEmpty
-            else { continue }
+            guard let tags = element["tags"] as? [String: String] else { continue }
             let highway = tags["highway"] ?? ""
             let priority = Self.highwayPriority[highway] ?? 1
-            if priority >= bestPriority {
+            let explicit = tags["maxspeed"].flatMap { OSMMaxSpeedParser.parseKmh($0) }
+            let implied = OSMMaxSpeedParser.impliedKmh(forHighway: highway)
+            guard let kmh = explicit ?? implied else { continue }
+
+            let hasExplicit = explicit != nil
+            if priority > bestPriority
+                || (priority == bestPriority && hasExplicit && !bestHasExplicitTag) {
                 bestPriority = priority
-                bestLimit = maxspeed
+                bestLimit = kmh
+                bestHasExplicitTag = hasExplicit
             }
         }
         return bestLimit
@@ -306,14 +290,6 @@ final class SpeedLimitService {
         guard cacheDirty else { return }
         cacheStore.save(cache)
         cacheDirty = false
-    }
-
-    private func persistManualOverride() {
-        if let manualOverrideKmh {
-            UserDefaults.standard.set(manualOverrideKmh, forKey: manualOverrideKey)
-        } else {
-            UserDefaults.standard.removeObject(forKey: manualOverrideKey)
-        }
     }
 }
 

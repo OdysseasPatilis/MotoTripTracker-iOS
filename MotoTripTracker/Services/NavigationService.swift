@@ -79,6 +79,14 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
         completer.resultTypes = [.address, .pointOfInterest]
     }
 
+    /// Starts MapKit's local-search daemon so the first destination sheet isn't cold.
+    func warmUpSearchCompleter() {
+        guard searchQuery.isEmpty else { return }
+        completer.queryFragment = " "
+        completer.queryFragment = ""
+        searchResults = []
+    }
+
     var hasDestination: Bool { destinationCoordinate != nil }
     var hasRoute: Bool { routeCoordinates.count > 1 }
 

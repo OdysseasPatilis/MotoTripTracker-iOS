@@ -6,6 +6,7 @@ import os
 struct RideTrackerView: View {
     @Environment(AppContainer.self) private var app
     @Environment(ThemeStore.self) private var theme
+    @Environment(\.appNavigate) private var navigate
     @Environment(\.scenePhase) private var scenePhase
     @State private var batteryLevel = BatteryReader.currentLevel()
     @State private var discardBanner: String?
@@ -13,8 +14,6 @@ struct RideTrackerView: View {
     @State private var showFuelSettings = false
     @State private var showPetrolPicker = false
     @State private var showRouteWeather = false
-
-    private static let selectableSpeedLimits = [30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130]
 
     private var speedLimitKmh: Int { app.speedLimitService.effectiveLimitKmh }
 
@@ -190,10 +189,14 @@ struct RideTrackerView: View {
 
     private func optionsMenu(colors: AppPalette) -> some View {
         Menu {
-            NavigationLink(value: AppRoute.history) {
+            Button {
+                navigate(.history)
+            } label: {
                 Label("Ride History", systemImage: "list.bullet")
             }
-            NavigationLink(value: AppRoute.leaderboard) {
+            Button {
+                navigate(.leaderboard)
+            } label: {
                 Label("Leaderboard", systemImage: "trophy")
             }
             Divider()
@@ -426,10 +429,7 @@ struct RideTrackerView: View {
                 speedKmh: stats.speed,
                 maxSpeedKmh: max(stats.maxSpeed, 260),
                 speedLimitKmh: Double(speedLimitKmh),
-                colors: colors,
-                isAutoLimit: app.speedLimitService.hasAutoLimit,
-                onCycleSpeedLimit: cycleSpeedLimit,
-                onClearManualOverride: clearManualSpeedLimit
+                colors: colors
             )
             GForceBar(
                 value: stats.currentGForce,
@@ -441,25 +441,6 @@ struct RideTrackerView: View {
         .padding(.horizontal, 20)
         .frame(maxWidth: .infinity)
         .background(colors.bgCard, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-    }
-
-    private func cycleSpeedLimit() {
-        let limits = Self.selectableSpeedLimits
-        let current = app.speedLimitService.manualOverrideKmh ?? app.speedLimitService.autoLimitKmh ?? 50
-        if let index = limits.firstIndex(of: current) {
-            app.speedLimitService.manualOverrideKmh = limits[(index + 1) % limits.count]
-        } else {
-            app.speedLimitService.manualOverrideKmh = 50
-        }
-        AppLogger.speedLimit.info(
-            "Manual override set → \(self.app.speedLimitService.manualOverrideKmh ?? -1) km/h (auto was \(self.app.speedLimitService.autoLimitKmh.map(String.init) ?? "none"))"
-        )
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-    }
-
-    private func clearManualSpeedLimit() {
-        app.speedLimitService.clearManualOverride()
-        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
     }
 
     private func statsGrid(stats: TripStats, colors: AppPalette) -> some View {
@@ -590,9 +571,6 @@ struct SpeedometerArc: View {
     var maxSpeedKmh: Double = 260
     var speedLimitKmh: Double = 50
     let colors: AppPalette
-    var isAutoLimit: Bool = false
-    var onCycleSpeedLimit: (() -> Void)?
-    var onClearManualOverride: (() -> Void)?
 
     private var isOverLimit: Bool { speedKmh > speedLimitKmh }
     private var speedPercent: Double { min(max(speedKmh / maxSpeedKmh, 0), 1) }
@@ -686,18 +664,10 @@ struct SpeedometerArc: View {
             VStack(spacing: 6) {
                 SpeedLimitSign(
                     limitKmh: Int(speedLimitKmh),
-                    isOverLimit: isOverLimit,
-                    isAutoLimit: isAutoLimit
+                    isOverLimit: isOverLimit
                 )
-                .onTapGesture {
-                    onCycleSpeedLimit?()
-                }
-                .onLongPressGesture(minimumDuration: 0.5) {
-                    onClearManualOverride?()
-                }
+                .allowsHitTesting(false)
                 .accessibilityLabel("Speed limit \(Int(speedLimitKmh)) kilometers per hour")
-                .accessibilityHint("Tap to set manually, long press to use road limit from map data")
-                .accessibilityAddTraits(.isButton)
 
                 Text("\(Int(speedKmh))")
                     .font(.system(size: 64, weight: .bold, design: .rounded))
@@ -764,33 +734,42 @@ struct OverLimitScreenFlash: View {
 struct SpeedLimitSign: View {
     let limitKmh: Int
     let isOverLimit: Bool
-    var isAutoLimit: Bool = false
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 0.16, paused: !isOverLimit)) { context in
-            let phase = OverLimitFlashPhase.current(at: context.date)
-            let fill = isOverLimit ? phase.fill : Color.white
-            let ring = isOverLimit ? phase.ring : Color(hex: 0xE30613)
-            let number = isOverLimit ? phase.number : Color.black
-
-            ZStack(alignment: .bottomTrailing) {
-                ZStack {
-                    Circle()
-                        .fill(fill)
-                        .shadow(color: isOverLimit ? phase.fill.opacity(0.55) : .black.opacity(0.25), radius: isOverLimit ? 8 : 3, y: 1)
-
-                    Circle()
-                        .stroke(ring, lineWidth: 5.5)
-
-                    Text("\(limitKmh)")
-                        .font(.system(size: limitKmh >= 100 ? 18 : 22, weight: .bold, design: .rounded))
-                        .foregroundStyle(number)
-                        .minimumScaleFactor(0.7)
-                        .lineLimit(1)
+        Group {
+            if isOverLimit {
+                TimelineView(.animation(minimumInterval: 0.16)) { context in
+                    badge(phase: OverLimitFlashPhase.current(at: context.date))
                 }
-                .frame(width: 54, height: 54)
+            } else {
+                badge(fill: .white, ring: Color(hex: 0xE30613), number: .black, glowing: false)
             }
         }
+        .allowsHitTesting(false)
+    }
+
+    private func badge(phase: OverLimitFlashPhase) -> some View {
+        badge(fill: phase.fill, ring: phase.ring, number: phase.number, glowing: true)
+    }
+
+    private func badge(fill: Color, ring: Color, number: Color, glowing: Bool) -> some View {
+        ZStack {
+            Circle()
+                .fill(fill)
+                .shadow(
+                    color: glowing ? fill.opacity(0.55) : .black.opacity(0.25),
+                    radius: glowing ? 8 : 3,
+                    y: 1
+                )
+            Circle()
+                .stroke(ring, lineWidth: 5.5)
+            Text("\(limitKmh)")
+                .font(.system(size: limitKmh >= 100 ? 18 : 22, weight: .bold, design: .rounded))
+                .foregroundStyle(number)
+                .minimumScaleFactor(0.7)
+                .lineLimit(1)
+        }
+        .frame(width: 54, height: 54)
     }
 }
 

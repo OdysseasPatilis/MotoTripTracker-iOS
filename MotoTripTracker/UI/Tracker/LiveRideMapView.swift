@@ -57,7 +57,13 @@ struct LiveRideMapView: View {
                 }
             }
         }
-        .mapStyle(.standard(elevation: .realistic, pointsOfInterest: .excludingAll))
+        // Realistic elevation is expensive on first load; keep it for active rides only.
+        .mapStyle(
+            .standard(
+                elevation: isRiding ? .realistic : .flat,
+                pointsOfInterest: .excludingAll
+            )
+        )
         .mapControls {
             MapCompass()
         }
