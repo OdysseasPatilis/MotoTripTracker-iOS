@@ -69,6 +69,29 @@ struct MotoTripTrackerTests {
         #expect(stopped == 5000)
     }
 
+    @Test func tripTimingRecomputerKeepsSubSecondIntervals() {
+        // Simulates best-for-navigation GPS at ~2 Hz for 10 seconds of motion.
+        let points: [RoutePoint] = (0..<21).map { index in
+            RoutePoint(
+                latitude: 37.98,
+                longitude: 23.72 + Double(index) * 0.00001,
+                altitude: 100,
+                speedMps: 10,
+                timestamp: 1_000_000 + Double(index) * 0.5
+            )
+        }
+        let times = TripTimingRecomputer.times(from: points)
+        #expect(times.movingSeconds == 10)
+        #expect(times.stoppedSeconds == 0)
+        #expect(
+            TripTimingRecomputer.looksUndercounted(
+                movingSeconds: 0,
+                stoppedSeconds: 0,
+                points: points
+            )
+        )
+    }
+
     @Test func gForceTrackerUsesSpeedDeltasAndClampsPeaks() async {
         let tracker = await MainActor.run { GForceTracker() }
         await MainActor.run {

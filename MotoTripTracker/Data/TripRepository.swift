@@ -160,6 +160,42 @@ final class TripRepository {
         }
     }
 
+    /// Fixes rides whose moving+stopped time was truncated by sub-second GPS integer division.
+    func repairUndercountedTripTimings() {
+        var repaired = 0
+        for trip in allTrips() {
+            let points = trip.routePoints
+            guard TripTimingRecomputer.looksUndercounted(
+                movingSeconds: trip.movingTime,
+                stoppedSeconds: trip.stoppedTime,
+                points: points
+            ) else { continue }
+
+            let times = TripTimingRecomputer.times(from: points)
+            let before = trip.movingTime + trip.stoppedTime
+            trip.movingTime = times.movingSeconds
+            trip.stoppedTime = times.stoppedSeconds
+            trip.avgSpeed = RideDistanceFilter.averageSpeedKmh(
+                distanceMeters: trip.distanceMeters,
+                movingTimeSeconds: times.movingSeconds,
+                maxSpeedKmh: trip.maxSpeed
+            )
+            repaired += 1
+            AppLogger.persistence.notice(
+                "Repaired trip timing id=\(AppLogger.uuidShort(trip.id), privacy: .public) \(before)s → \(times.movingSeconds + times.stoppedSeconds)s"
+            )
+        }
+        guard repaired > 0 else { return }
+        do {
+            try modelContext.save()
+            AppLogger.persistence.notice("Repaired timings on \(repaired) trip(s)")
+        } catch {
+            AppLogger.persistence.error(
+                "Failed to save repaired timings: \(error.localizedDescription, privacy: .public)"
+            )
+        }
+    }
+
     func waypoints(for tripID: UUID) -> [RoutePoint] {
         routePoints(for: tripID).filter(\.isWaypoint)
     }

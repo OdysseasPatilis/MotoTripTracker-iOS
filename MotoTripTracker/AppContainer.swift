@@ -64,6 +64,7 @@ final class AppContainer {
         // Widget snapshot can wait until after first frame — reloadAllTimelines is costly.
         Task { @MainActor in
             repository.recoverOrphanedTrips()
+            repository.repairUndercountedTripTimings()
             RideWidgetSnapshotPublisher.publish(from: repository)
             RideLiveActivityController.shared.endStaleActivitiesIfNeeded()
         }

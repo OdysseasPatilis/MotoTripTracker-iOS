@@ -24,6 +24,11 @@ final class TripManager {
     private var elevationSmoother = ElevationSmoother()
     private var sessionMaxSpeedKmh = 0.0
     private let speedSmoother = SpeedSmoother()
+    /// Accumulate in milliseconds — GPS often ticks under 1 s; integer seconds would truncate to 0.
+    private var movingTimeMs: Int64 = 0
+    private var stoppedTimeMs: Int64 = 0
+    /// Last known motion — used to keep the clock running when a fix is accuracy-rejected.
+    private var lastWasMoving = false
 
     private static let movingSpeedMps = 0.1
     private static let maxPlausibleSpeedKmh = 300.0
@@ -41,6 +46,9 @@ final class TripManager {
         lastLocation = nil
         routeCoordinates = []
         sessionMaxSpeedKmh = 0
+        movingTimeMs = 0
+        stoppedTimeMs = 0
+        lastWasMoving = false
         stopDetector.reset()
         speedSmoother.reset()
         cornerDetector.reset()
@@ -65,11 +73,14 @@ final class TripManager {
         stopDetector.reset()
         speedSmoother.reset()
         lastLocation = nil
+        lastWasMoving = false
 
         var stats = sessionState.stats
         stats.speed = 0
         stats.currentGForce = 0
         stats.currentLateralGForce = 0
+        stats.movingTime = movingTimeMs / 1000
+        stats.stoppedTime = stoppedTimeMs / 1000
         sessionState = RideSessionState(stats: stats, isActive: true, isPaused: true)
         AppLogger.trip.notice("Trip paused \(AppLogger.tripSummary(stats), privacy: .public)")
     }
@@ -93,9 +104,14 @@ final class TripManager {
 
         let accuracy = location.horizontalAccuracy >= 0 ? location.horizontalAccuracy : nil
         let gpsQuality = GpsQuality.fromAccuracyMeters(accuracy)
+        let currentTime = location.timestamp.timeIntervalSince1970
 
         guard speedFilter.isValid(location) else {
+            // Keep the ride clock running during poor-accuracy stretches (tunnels, urban canyon).
+            applyTimeDelta(currentTime: currentTime, isMoving: lastWasMoving)
             var rejected = sessionState.stats
+            rejected.movingTime = movingTimeMs / 1000
+            rejected.stoppedTime = stoppedTimeMs / 1000
             rejected.gpsAccuracyMeters = accuracy
             rejected.gpsQuality = gpsQuality
             sessionState = RideSessionState(stats: rejected, isActive: true, isPaused: false)
@@ -108,7 +124,6 @@ final class TripManager {
         }
 
         let currentSpeedMps = speedFilter.processedSpeed(from: location)
-        let currentTime = location.timestamp.timeIntervalSince1970
         let isMoving = currentSpeedMps > Self.movingSpeedMps
         let rawSpeedKmh = currentSpeedMps * 3.6
 
@@ -151,14 +166,12 @@ final class TripManager {
             }
         }
 
-        var stats = sessionState.stats
-        var newMoving = stats.movingTime
-        var newStopped = stats.stoppedTime
+        applyTimeDelta(currentTime: currentTime, isMoving: isMoving)
+        lastWasMoving = isMoving
 
-        stopDetector.updateTimes(currentTime: currentTime, isMoving: isMoving) { movingDeltaMs, stoppedDeltaMs in
-            newMoving += movingDeltaMs / 1000
-            newStopped += stoppedDeltaMs / 1000
-        }
+        var stats = sessionState.stats
+        let newMoving = movingTimeMs / 1000
+        let newStopped = stoppedTimeMs / 1000
 
         gForceTracker.update(speedMps: currentSpeedMps, timestamp: currentTime)
 
@@ -220,14 +233,11 @@ final class TripManager {
         gForceTracker.stopTracking()
 
         let endTime = Date().timeIntervalSince1970
-        var stats = sessionState.stats
-        var finalMoving = stats.movingTime
-        var finalStopped = stats.stoppedTime
+        applyTimeDelta(currentTime: endTime, isMoving: false)
 
-        stopDetector.updateTimes(currentTime: endTime, isMoving: false) { movingDeltaMs, stoppedDeltaMs in
-            finalMoving += movingDeltaMs / 1000
-            finalStopped += stoppedDeltaMs / 1000
-        }
+        var stats = sessionState.stats
+        let finalMoving = movingTimeMs / 1000
+        let finalStopped = stoppedTimeMs / 1000
 
         stats.speed = 0
         stats.currentGForce = 0
@@ -265,9 +275,19 @@ final class TripManager {
 
         stopDetector.reset()
         cornerDetector.reset()
+        movingTimeMs = 0
+        stoppedTimeMs = 0
+        lastWasMoving = false
         currentTripID = nil
         sessionState = RideSessionState(stats: stats, isActive: false, isPaused: false)
         LogThrottle.reset(key: "trip.location")
         return saved
+    }
+
+    private func applyTimeDelta(currentTime: TimeInterval, isMoving: Bool) {
+        stopDetector.updateTimes(currentTime: currentTime, isMoving: isMoving) { movingDeltaMs, stoppedDeltaMs in
+            movingTimeMs += movingDeltaMs
+            stoppedTimeMs += stoppedDeltaMs
+        }
     }
 }
