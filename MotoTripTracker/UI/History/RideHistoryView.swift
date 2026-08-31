@@ -37,6 +37,22 @@ struct RideHistoryView: View {
         filterRides(allRides)
     }
 
+    /// Rides grouped by calendar day, newest day first.
+    private var rideDaySections: [RideDaySection] {
+        let calendar = Calendar.current
+        let grouped = Dictionary(grouping: visibleRides) { trip in
+            calendar.startOfDay(for: Date(timeIntervalSince1970: trip.startTime))
+        }
+        return grouped.keys.sorted(by: >).map { dayStart in
+            let rides = (grouped[dayStart] ?? []).sorted { $0.startTime > $1.startTime }
+            return RideDaySection(
+                id: dayStart,
+                title: Self.daySectionTitle(for: dayStart, calendar: calendar),
+                rides: rides
+            )
+        }
+    }
+
     var body: some View {
         let colors = theme.palette
 
@@ -103,22 +119,24 @@ struct RideHistoryView: View {
                     .listRowBackground(Color.clear)
                 }
             } else {
-                Section {
-                    ForEach(visibleRides, id: \.id) { ride in
-                        NavigationLink(value: AppRoute.summary(ride.id)) {
-                            RideHistoryRow(ride: ride, colors: colors)
-                        }
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            Button {
-                                app.repository.toggleFavorite(id: ride.id)
-                                reload()
-                            } label: {
-                                Label(
-                                    ride.isFavorite ? "Unfavorite" : "Favorite",
-                                    systemImage: ride.isFavorite ? "star.slash" : "star.fill"
-                                )
+                ForEach(rideDaySections) { section in
+                    Section(section.title) {
+                        ForEach(section.rides, id: \.id) { ride in
+                            NavigationLink(value: AppRoute.summary(ride.id)) {
+                                RideHistoryRow(ride: ride, colors: colors)
                             }
-                            .tint(colors.routeAmber)
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button {
+                                    app.repository.toggleFavorite(id: ride.id)
+                                    reload()
+                                } label: {
+                                    Label(
+                                        ride.isFavorite ? "Unfavorite" : "Favorite",
+                                        systemImage: ride.isFavorite ? "star.slash" : "star.fill"
+                                    )
+                                }
+                                .tint(colors.routeAmber)
+                            }
                         }
                     }
                 }
@@ -236,12 +254,35 @@ struct RideHistoryView: View {
         }
     }
 
+    private static func daySectionTitle(for dayStart: Date, calendar: Calendar) -> String {
+        if calendar.isDateInToday(dayStart) {
+            return "Today"
+        }
+        if calendar.isDateInYesterday(dayStart) {
+            return "Yesterday"
+        }
+        return daySectionDate.string(from: dayStart)
+    }
+
     private static let shortDate: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
         formatter.timeStyle = .none
         return formatter
     }()
+
+    private static let daySectionDate: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = .current
+        formatter.dateFormat = "dd/MM/yyyy"
+        return formatter
+    }()
+}
+
+private struct RideDaySection: Identifiable {
+    let id: Date
+    let title: String
+    let rides: [Trip]
 }
 
 extension CustomDateField: Identifiable {
@@ -304,7 +345,7 @@ struct RideHistoryRow: View {
                             .foregroundStyle(colors.routeAmber)
                     }
                 }
-                Text(RideFormatters.timestampToDate(ride.startTime))
+                Text(RideFormatters.timestampToTime(ride.startTime))
                     .font(.caption)
                     .foregroundStyle(colors.textSecondary)
                 Text(

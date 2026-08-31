@@ -19,6 +19,14 @@ enum RideFormatters {
         return formatter.string(from: date)
     }
 
+    /// Clock time only — used under day section headers in History.
+    static func timestampToTime(_ timeInterval: TimeInterval) -> String {
+        guard timeInterval > 0 else { return "--" }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: Date(timeIntervalSince1970: timeInterval))
+    }
+
     static func currentClock() -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm"
