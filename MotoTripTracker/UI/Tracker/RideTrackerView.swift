@@ -12,6 +12,7 @@ struct RideTrackerView: View {
     @State private var discardBanner: String?
     @State private var showDestinationSearch = false
     @State private var showFuelSettings = false
+    @State private var showBackendSettings = false
     @State private var showPetrolPicker = false
     @State private var showRouteWeather = false
 
@@ -119,6 +120,9 @@ struct RideTrackerView: View {
         }
         .sheet(isPresented: $showFuelSettings) {
             FuelSettingsView()
+        }
+        .sheet(isPresented: $showBackendSettings) {
+            BackendSettingsView()
         }
         .sheet(isPresented: $showPetrolPicker) {
             PetrolStationsView()
@@ -242,6 +246,11 @@ struct RideTrackerView: View {
                 showFuelSettings = true
             } label: {
                 Label("Fuel & Range", systemImage: "fuelpump")
+            }
+            Button {
+                showBackendSettings = true
+            } label: {
+                Label("Cloud Sync", systemImage: "icloud.and.arrow.up")
             }
             Button {
                 showPetrolPicker = true

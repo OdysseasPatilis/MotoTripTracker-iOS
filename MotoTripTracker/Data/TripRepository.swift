@@ -87,6 +87,8 @@ final class TripRepository {
             do {
                 try modelContext.save()
                 AppLogger.persistence.notice("Trip saved id=\(AppLogger.uuidShort(tripID), privacy: .public)")
+                let uploadPayload = TripCloudUploader.makePayload(trip: trip, points: points)
+                TripCloudUploader.enqueueUpload(payload: uploadPayload)
             } catch {
                 AppLogger.persistence.error("Failed to save finalized trip: \(error.localizedDescription, privacy: .public)")
             }
