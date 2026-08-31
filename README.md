@@ -1,6 +1,6 @@
 # MotoTripTracker (iOS)
 
-A SwiftUI motorcycle ride tracker for iPhone. Record GPS rides in the background, see live speed and road speed limits, review history with physics insights (G-force, corners), and share or export routes.
+A SwiftUI motorcycle ride tracker for iPhone. Record GPS rides in the background, see live speed and road speed limits, review history with physics insights (G-force, corners), share or export routes, and optionally upload completed rides to your own backend.
 
 The app is the iOS counterpart of the Android **MotoTripTracker** project, with feature parity for tracking, Overpass speed limits, ride moments, favorites, and GPX/share.
 
@@ -21,7 +21,7 @@ The app is the iOS counterpart of the Android **MotoTripTracker** project, with 
 - **When In Use / Allow Once is not enough** for locked-screen rides — without Always, GPS pauses on lock and the ride clock freezes (Live Activity can still show stale stats).
 - **Neon glow speedometer** (270° ring with blurred underlay) and centered European-style speed-limit badge (display-only; no manual override)
 - **Dashboard metrics**: distance, moving/stopped time, avg/max speed (max from raw GPS, avg capped by peak and based on speed-consistent distance), elevation gain, longitudinal G, lateral G, **twistiness score** (0–100 from corner density + lateral G)
-- **GPS quality** and **battery** as floating chips on the map; **Options** menu (History, Leaderboard, theme) hidden while riding so it does not overlap the map compass
+- **GPS quality** and **battery** as floating chips on the map; **Options** menu (History, Leaderboard, Cloud Sync, theme) hidden while riding so it does not overlap the map compass
 - Short rides under **50 m** are discarded automatically
 
 ### Live Activities & Home Screen widgets
@@ -61,9 +61,18 @@ The app is the iOS counterpart of the Android **MotoTripTracker** project, with 
 - **Lateral G** estimated from turn radius (`v² / r`)
 - **Twistiness score** (0–100): combines corners-per-10 km with peak lateral G; ratings from *Straight* → *Flowing* → *Twisty* → *Epic twisties*. Persisted on each trip and shown live on the dashboard.
 - Speed smoothing, teleport rejection (>80 m jumps), elevation noise filtering, stop-time from near-zero speed
+- **Moving / stopped time** accumulated in milliseconds during the ride (avoids under-counting from sub-second GPS intervals); older trips are repaired on launch when timings look truncated
+
+### Cloud sync (optional backend)
+- **Cloud Sync** in the dashboard **Options** menu — set a backend base URL (e.g. `http://192.168.1.10:8080` on your LAN while testing a local Ktor server)
+- Leave the URL **empty** to disable upload entirely
+- After **Stop**, completed rides **auto-upload** in the background to `POST {baseURL}/v1/trips/upload` (trip stats, polyline, and route points as JSON)
+- **Upload to server** on Ride Summary for a manual retry when auto-upload failed or you were offline
+- A stable client **user ID** is generated once and sent with each payload; upload is best-effort and non-blocking
 
 ### History & trip meta
-- Chronological ride list with **All / Favorites** tabs
+- Chronological ride list grouped by day — **Today**, **Yesterday**, then **`dd/MM/yyyy`** — with time-only rows inside each section
+- **All / Favorites** tabs
 - Native **search** and date filters (today, yesterday, week, month, **custom range**)
 - Rename rides and mark favorites (including swipe actions)
 - Empty states via `ContentUnavailableView`
@@ -77,6 +86,7 @@ The app is the iOS counterpart of the Android **MotoTripTracker** project, with 
 - Stats overview (including **twistiness** rating) and **Ride Moments** (timed highlights: peak rush, climbs, pauses, cruise windows, twistiness — distinct from Stats)
 - Map preview with encoded polyline
 - **Share card** image: route map, stats strip (max speed, twistiness, corners, moving time), and top moments; plus **GPX** export
+- **Upload to server** when Cloud Sync is configured (see above)
 - **Replay route** from summary menu — opens the full route view with playback controls
 
 ### Full route map & replay
@@ -145,6 +155,7 @@ flowchart TB
     Models[Trip RoutePoint - SwiftData]
     Waypoints[WaypointAnalyzer]
     GPX[GpxExporter]
+    Cloud[TripCloudUploader BackendSettings]
   end
 
   Tracker --> Container
@@ -164,8 +175,10 @@ flowchart TB
   SpeedLim --> Cache
   Repo --> Models
   Repo --> Waypoints
+  Repo -->|on save| Cloud
   Summary --> Moments
   Summary --> GPX
+  Summary --> Cloud
 ```
 
 ### Layer responsibilities
@@ -176,7 +189,7 @@ flowchart TB
 | **App** | DI / composition root | `AppContainer`, `MotoTripTrackerApp` |
 | **Domain** | Ride loop, filtering, physics, moments | `TripManager`, `TripStats`, detectors / smoothers, `TwistinessCalculator`, `RouteReplayEngine`, `RideMomentsCalculator` |
 | **Services** | Platform & network | `LocationService`, `SpeedLimitService`, `NavigationService`, `NavigationVoicePrompt`, `FuelService`, `RouteWeatherService`, `PetrolStationFinder`, `RideLiveActivityController` |
-| **Data** | Persistence & export | `TripRepository`, SwiftData models, `WaypointAnalyzer`, `GpxExporter`, `PolylineEncoder` |
+| **Data** | Persistence, export & cloud upload | `TripRepository`, SwiftData models, `WaypointAnalyzer`, `GpxExporter`, `PolylineEncoder`, `TripCloudUploader`, `BackendSettings` |
 | **Utilities** | Cross-cutting helpers | `AppLogger`, `RideFormatters`, `RideShareHelper`, `MapKitPlace` |
 
 ### Ride session flow
@@ -186,8 +199,8 @@ flowchart TB
 3. Screen stay-awake is enabled for the active session
 4. Each fix is validated (`SpeedFilter`), then fed to `TripManager`, `SpeedLimitService`, and `NavigationService` (route ETA + weather-ahead refresh when a destination is set)
 5. `TripManager` updates `TripStats`, persists route points via `TripRepository`, and runs corner / G / elevation / stop logic
-6. **Stop** finalizes the trip (or deletes it if under 50 m), drops background GPS intent, ends the Live Activity, encodes a polyline, and runs waypoint analysis asynchronously
-7. On launch, orphaned mid-ride SwiftData rows and stale Live Activities from a force-quit are cleaned up
+6. **Stop** finalizes the trip (or deletes it if under 50 m), drops background GPS intent, ends the Live Activity, encodes a polyline, runs waypoint analysis asynchronously, and **enqueues a cloud upload** when a backend URL is configured
+7. On launch, orphaned mid-ride SwiftData rows and stale Live Activities from a force-quit are cleaned up; under-counted moving/stopped times on saved trips are repaired from route points
 
 ### Persistence (SwiftData)
 
@@ -218,11 +231,11 @@ MotoTripTracker/
 ├── MotoTripTrackerApp.swift      # @main entry
 ├── AppContainer.swift            # Composition / DI
 ├── Domain/                       # Trip loop & algorithms
-├── Data/                         # SwiftData models, repository, waypoints
+├── Data/                         # SwiftData models, repository, waypoints, Backend/ cloud upload
 ├── Services/                     # Location, Overpass speed limits, navigation, Live Activity / widget publishers
 ├── UI/
 │   ├── Navigation/
-│   ├── Tracker/                  # RideTrackerView, LiveRideMapView, DestinationSearchView, PetrolStationsView, RouteWeatherView, FuelSettingsView
+│   ├── Tracker/                  # RideTrackerView, LiveRideMapView, DestinationSearchView, BackendSettingsView, PetrolStationsView, RouteWeatherView, FuelSettingsView
 │   ├── History/
 │   ├── Leaderboard/
 │   ├── Summary/
@@ -253,6 +266,7 @@ Scripts/                          # Athens speed-limit pack builder
 | Route weather | Open-Meteo forecast API (no API key) |
 | Maps | Apple MapKit (system; no Maps API key required for native display) |
 | Widgets / Live Activities | WidgetKit + ActivityKit (App Group `group.com.odys.MotoTripTracker`) |
+| Cloud sync (optional) | `URLSession` POST to `{baseURL}/v1/trips/upload` — disabled when no server URL is set |
 | Concurrency | `@MainActor`, `Task` / `async` for network & waypoint work |
 | Observation | `@Observable` for session, theme, speed-limit state |
 
@@ -290,7 +304,7 @@ Notes:
 | Doc | Contents |
 | --- | --- |
 | [`docs/Project-Guide.md`](docs/Project-Guide.md) | Full codebase tour for new iOS developers — folders, flows, and source references |
-| [`docs/RND-Backend.md`](docs/RND-Backend.md) | Backend R&D — live buddy share, sync, leaderboards (not implemented yet) |
+| [`docs/RND-Backend.md`](docs/RND-Backend.md) | Backend R&D — live buddy share, sync, leaderboards; iOS already posts trips when a server URL is set |
 
 ---
 
