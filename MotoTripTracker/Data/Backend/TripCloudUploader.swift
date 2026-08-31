@@ -81,11 +81,37 @@ enum TripCloudUploader {
         }
 
         Task.detached(priority: .utility) {
-            do {
-                try await upload(payload)
-                AppLogger.app.notice("Cloud upload ok trip id=\(payload.clientTripId.prefix(8), privacy: .public)")
-            } catch {
-                AppLogger.app.error("Cloud upload failed: \(error.localizedDescription, privacy: .public)")
+            await runUpload(payload)
+        }
+    }
+
+    static func uploadNow(payload: UploadTripPayload) async throws {
+        guard BackendSettings.isEnabled else {
+            throw UploadError.backendDisabled
+        }
+        try await upload(payload)
+        AppLogger.app.notice("Cloud upload ok trip id=\(payload.clientTripId.prefix(8), privacy: .public)")
+    }
+
+    private static func runUpload(_ payload: UploadTripPayload) async {
+        do {
+            try await upload(payload)
+            AppLogger.app.notice("Cloud upload ok trip id=\(payload.clientTripId.prefix(8), privacy: .public)")
+        } catch {
+            AppLogger.app.error("Cloud upload failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    enum UploadError: LocalizedError {
+        case backendDisabled
+        case tripNotFound
+
+        var errorDescription: String? {
+            switch self {
+            case .backendDisabled:
+                "Backend URL not configured"
+            case .tripNotFound:
+                "Trip not found"
             }
         }
     }

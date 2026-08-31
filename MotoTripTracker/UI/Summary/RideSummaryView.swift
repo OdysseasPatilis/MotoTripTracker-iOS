@@ -14,6 +14,14 @@ struct RideSummaryView: View {
     @State private var showRename = false
     @State private var renameText = ""
     @State private var mapPosition: MapCameraPosition = .automatic
+    @State private var uploadStatus: CloudUploadStatus = .idle
+
+    private enum CloudUploadStatus: Equatable {
+        case idle
+        case uploading
+        case success
+        case failed(String)
+    }
 
     var body: some View {
         let colors = theme.palette
@@ -61,6 +69,37 @@ struct RideSummaryView: View {
                             }
                         } header: {
                             Text("Moments")
+                        }
+                    }
+
+                    if BackendSettings.isEnabled {
+                        Section {
+                            Button {
+                                Task { await uploadToServer() }
+                            } label: {
+                                HStack(spacing: 12) {
+                                    Image(systemName: "icloud.and.arrow.up")
+                                        .font(.body.weight(.semibold))
+                                        .foregroundStyle(colors.neonBlue)
+                                        .frame(width: 36, height: 36)
+                                        .background(colors.neonBlue.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(uploadStatus == .uploading ? "Uploading…" : "Upload to server")
+                                            .font(.subheadline.weight(.semibold))
+                                            .foregroundStyle(colors.textPrimary)
+                                        Text(uploadStatusMessage)
+                                            .font(.caption)
+                                            .foregroundStyle(uploadStatusColor(colors))
+                                    }
+                                    Spacer(minLength: 0)
+                                }
+                            }
+                            .disabled(uploadStatus == .uploading)
+                        } header: {
+                            Text("Cloud Sync")
+                        } footer: {
+                            Text("Send this ride to your Mac when you're on the same network. Auto-upload on stop still runs, but may fail without connectivity.")
                         }
                     }
                 }
@@ -140,6 +179,41 @@ struct RideSummaryView: View {
             let points = app.repository.routePoints(for: tripID)
             moments = RideMomentsCalculator.calculate(trip: trip, points: points)
             renameText = trip.title ?? ""
+        }
+    }
+
+    private var uploadStatusMessage: String {
+        switch uploadStatus {
+        case .idle:
+            "Tap when your phone can reach the Mac server."
+        case .uploading:
+            "Uploading…"
+        case .success:
+            "Uploaded successfully."
+        case .failed(let message):
+            message
+        }
+    }
+
+    private func uploadStatusColor(_ colors: AppPalette) -> Color {
+        switch uploadStatus {
+        case .success:
+            colors.neonGreen
+        case .failed:
+            colors.stopRed
+        default:
+            colors.textSecondary
+        }
+    }
+
+    private func uploadToServer() async {
+        guard uploadStatus != .uploading else { return }
+        uploadStatus = .uploading
+        do {
+            try await app.repository.uploadTrip(id: tripID)
+            uploadStatus = .success
+        } catch {
+            uploadStatus = .failed(error.localizedDescription)
         }
     }
 

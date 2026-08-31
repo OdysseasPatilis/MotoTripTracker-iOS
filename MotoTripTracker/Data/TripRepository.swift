@@ -108,6 +108,15 @@ final class TripRepository {
         saveContext(action: "favorite")
     }
 
+    func uploadTrip(id: UUID) async throws {
+        guard let trip = fetchTrip(id: id) else {
+            throw TripCloudUploader.UploadError.tripNotFound
+        }
+        let points = routePoints(for: id)
+        let payload = TripCloudUploader.makePayload(trip: trip, points: points)
+        try await TripCloudUploader.uploadNow(payload: payload)
+    }
+
     func allTrips() -> [Trip] {
         let descriptor = FetchDescriptor<Trip>(
             sortBy: [SortDescriptor(\.startTime, order: .reverse)]
