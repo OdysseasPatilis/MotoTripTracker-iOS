@@ -19,6 +19,8 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
     var onLocationUpdate: ((CLLocation) -> Void)?
 
     private var isUpdating = false
+    /// Only true during an active ride — never opt into background GPS on the idle dashboard.
+    private var wantsBackgroundUpdates = false
 
     /// Background ride recording only works with Always authorization.
     var hasAlwaysAuthorization: Bool {
@@ -37,12 +39,20 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
         manager.distanceFilter = kCLDistanceFilterNone
         manager.activityType = .automotiveNavigation
         manager.pausesLocationUpdatesAutomatically = false
-        manager.showsBackgroundLocationIndicator = true
+        applyBackgroundConfiguration(restartIfNeeded: false)
     }
 
-    func requestAuthorization() {
+    /// Ask for When In Use only (first launch / dashboard). Never auto-prompts Always.
+    func requestWhenInUseIfNeeded() {
+        guard authorizationStatus == .notDetermined else { return }
+        AppLogger.location.info("Requesting When In Use location authorization")
+        manager.requestWhenInUseAuthorization()
+    }
+
+    /// Upgrade to Always when the rider explicitly wants background recording.
+    func requestAlwaysForRideRecording() {
         AppLogger.location.info(
-            "Requesting location authorization (current=\(String(describing: self.authorizationStatus)))"
+            "Requesting Always authorization (current=\(String(describing: self.authorizationStatus)))"
         )
         switch authorizationStatus {
         case .notDetermined:
@@ -54,38 +64,29 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
         }
     }
 
-    /// Call when starting a ride — upgrades When In Use → Always if possible.
-    func requestAlwaysForRideRecording() {
-        requestAuthorization()
-        if authorizationStatus == .authorizedWhenInUse {
-            manager.requestAlwaysAuthorization()
-        }
-    }
-
     func openSystemLocationSettings() {
         guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
         UIApplication.shared.open(url)
     }
 
+    /// Foreground-only GPS (dashboard map, speed limit warm-up).
     func startUpdating() {
-        guard !isUpdating else {
-            configureBackgroundUpdatesIfAllowed()
-            startIfAuthorized()
-            return
-        }
-        isUpdating = true
-        configureBackgroundUpdatesIfAllowed()
-        startIfAuthorized()
-        AppLogger.location.notice(
-            "Location updates requested (authorized=\(self.isLocationEnabled), always=\(self.hasAlwaysAuthorization), background=\(self.manager.allowsBackgroundLocationUpdates))"
-        )
+        wantsBackgroundUpdates = false
+        beginUpdatingIfNeeded()
+    }
+
+    /// GPS for an active ride — background updates only when Always is granted.
+    func startRideUpdating() {
+        wantsBackgroundUpdates = true
+        beginUpdatingIfNeeded()
     }
 
     func stopUpdating() {
         guard isUpdating else { return }
         isUpdating = false
-        manager.allowsBackgroundLocationUpdates = false
+        wantsBackgroundUpdates = false
         manager.stopUpdatingLocation()
+        applyBackgroundConfiguration(restartIfNeeded: false)
         AppLogger.location.notice("Location updates stopped")
     }
 
@@ -93,18 +94,49 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
         isLocationEnabled = Self.isAuthorized(authorizationStatus)
     }
 
+    private func beginUpdatingIfNeeded() {
+        let starting = !isUpdating
+        isUpdating = true
+        applyBackgroundConfiguration(restartIfNeeded: starting)
+        startIfAuthorized()
+        AppLogger.location.notice(
+            "Location updates requested (authorized=\(self.isLocationEnabled), always=\(self.hasAlwaysAuthorization), background=\(self.manager.allowsBackgroundLocationUpdates), ride=\(self.wantsBackgroundUpdates))"
+        )
+    }
+
     private func startIfAuthorized() {
         guard isUpdating, isLocationEnabled else { return }
         manager.startUpdatingLocation()
     }
 
-    private func configureBackgroundUpdatesIfAllowed() {
-        // Setting this without Always authorization crashes.
-        let always = authorizationStatus == .authorizedAlways
-        manager.allowsBackgroundLocationUpdates = always
-        if always {
-            manager.showsBackgroundLocationIndicator = true
+    /// Configures background location safely. Setting `allowsBackgroundLocationUpdates = true`
+    /// without Always auth triggers: `!stayUp || CLClientIsBackgroundable(...)`.
+    private func applyBackgroundConfiguration(restartIfNeeded: Bool) {
+        let status = manager.authorizationStatus
+        authorizationStatus = status
+        isLocationEnabled = Self.isAuthorized(status)
+
+        let shouldEnableBackground =
+            wantsBackgroundUpdates
+            && status == .authorizedAlways
+            && Self.hasLocationBackgroundMode
+
+        let wasRunning = isUpdating
+        if wasRunning {
+            manager.stopUpdatingLocation()
         }
+
+        manager.allowsBackgroundLocationUpdates = shouldEnableBackground
+        manager.showsBackgroundLocationIndicator = shouldEnableBackground
+
+        if wasRunning && restartIfNeeded && isLocationEnabled {
+            manager.startUpdatingLocation()
+        }
+    }
+
+    private static var hasLocationBackgroundMode: Bool {
+        let modes = Bundle.main.object(forInfoDictionaryKey: "UIBackgroundModes") as? [String]
+        return modes?.contains("location") == true
     }
 
     private static func isAuthorized(_ status: CLAuthorizationStatus) -> Bool {
@@ -115,13 +147,10 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
         Task { @MainActor in
             let status = manager.authorizationStatus
             AppLogger.location.notice("Authorization changed → \(String(describing: status))")
-            self.authorizationStatus = status
-            self.refreshLocationEnabled()
-            self.configureBackgroundUpdatesIfAllowed()
-            if status == .authorizedWhenInUse {
-                manager.requestAlwaysAuthorization()
-            }
-            self.startIfAuthorized()
+            // Do not call requestAlwaysAuthorization() from this delegate — re-entrancy
+            // here (especially after "Allow Once") can terminate the app on launch.
+            applyBackgroundConfiguration(restartIfNeeded: true)
+            startIfAuthorized()
         }
     }
 

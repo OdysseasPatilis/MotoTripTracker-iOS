@@ -12,9 +12,14 @@ The app is the iOS counterpart of the Android **MotoTripTracker** project, with 
 - **Split dashboard**: live MapKit map on top (~46%), speedometer + stats below
 - **Live map** with follow-camera and 3D pitch while riding; gentle top-down view when idle
 - **Traveled trail** drawn on the map as a mint polyline during the session
-- **Start / pause / resume / stop** with keep-screen-on while riding
-- **Background location** (Always authorization) so recording continues with the screen locked. **When In Use only is not enough** — without Always, GPS stops on lock and the ride clock freezes (Live Activity can still appear with stale stats). The dashboard warns and links to Settings if Always is missing.
-- **Neon glow speedometer** (270° ring with blurred underlay) and centered European-style speed-limit badge
+- **Start / pause / resume / stop** with **keep-screen-on while a ride is active** (including paused) so auto-lock does not dim the dashboard mid-ride
+- **Location permissions — read this before riding**
+  - **Always** — required for recording with the screen locked or the app in the background. Background GPS is enabled **only during an active ride** and only when Always is granted.
+  - **While Using the App** — fine for testing with the app open on the dashboard; GPS stops when the screen locks.
+  - **Allow Once** — **do not use for rides**. It is temporary, does not enable background recording, and can leave the app in a bad permission state if you tap through prompts while trying to fix settings.
+  - The dashboard shows an **orange warning** during rides without Always; tap it to request Always or open Settings.
+- **When In Use / Allow Once is not enough** for locked-screen rides — without Always, GPS pauses on lock and the ride clock freezes (Live Activity can still show stale stats).
+- **Neon glow speedometer** (270° ring with blurred underlay) and centered European-style speed-limit badge (display-only; no manual override)
 - **Dashboard metrics**: distance, moving/stopped time, avg/max speed (max from raw GPS, avg capped by peak and based on speed-consistent distance), elevation gain, longitudinal G, lateral G, **twistiness score** (0–100 from corner density + lateral G)
 - **GPS quality** and **battery** as floating chips on the map; **Options** menu (History, Leaderboard, theme) hidden while riding so it does not overlap the map compass
 - Short rides under **50 m** are discarded automatically
@@ -75,7 +80,7 @@ The app is the iOS counterpart of the Android **MotoTripTracker** project, with 
 - **Replay route** from summary menu — opens the full route view with playback controls
 
 ### Full route map & replay
-- MapKit route polyline colored by speed or elevation
+- MapKit route polyline with a **continuous speed gradient** (teal → blue → coral; slower → faster) or elevation coloring
 - Segmented Speed / Elevation layers
 - Elevation or speed profile chart
 - Waypoints (start/end, top speed, summit, stops, etc.) with reverse-geocoded labels where available
@@ -170,17 +175,19 @@ flowchart TB
 | **UI** | Screens, navigation, theme | `RootNavigationView`, tracker / live map / destination search / history / summary / route views, `ThemeStore` |
 | **App** | DI / composition root | `AppContainer`, `MotoTripTrackerApp` |
 | **Domain** | Ride loop, filtering, physics, moments | `TripManager`, `TripStats`, detectors / smoothers, `TwistinessCalculator`, `RouteReplayEngine`, `RideMomentsCalculator` |
-| **Services** | Platform & network | `LocationService`, `SpeedLimitService`, `NavigationService`, `FuelService`, `RouteWeatherService`, `PetrolStationFinder`, `OSMMaxSpeedParser` |
+| **Services** | Platform & network | `LocationService`, `SpeedLimitService`, `NavigationService`, `NavigationVoicePrompt`, `FuelService`, `RouteWeatherService`, `PetrolStationFinder`, `RideLiveActivityController` |
 | **Data** | Persistence & export | `TripRepository`, SwiftData models, `WaypointAnalyzer`, `GpxExporter`, `PolylineEncoder` |
-| **Utilities** | Cross-cutting helpers | `AppLogger`, `RideFormatters`, `RideShareHelper` |
+| **Utilities** | Cross-cutting helpers | `AppLogger`, `RideFormatters`, `RideShareHelper`, `MapKitPlace` |
 
 ### Ride session flow
 
 1. User taps **Start Ride** → `AppContainer.startRide()`
-2. `LocationService` begins GPS updates (background allowed when Always is granted)
-3. Each fix is validated (`SpeedFilter`), then fed to `TripManager`, `SpeedLimitService`, and `NavigationService` (route ETA + weather-ahead refresh when a destination is set)
-4. `TripManager` updates `TripStats`, persists route points via `TripRepository`, and runs corner / G / elevation / stop logic
-5. **Stop** finalizes the trip (or deletes it if under 50 m), encodes a polyline, and runs waypoint analysis asynchronously
+2. `LocationService.startRideUpdating()` begins GPS (foreground always; **background only if Always is granted**)
+3. Screen stay-awake is enabled for the active session
+4. Each fix is validated (`SpeedFilter`), then fed to `TripManager`, `SpeedLimitService`, and `NavigationService` (route ETA + weather-ahead refresh when a destination is set)
+5. `TripManager` updates `TripStats`, persists route points via `TripRepository`, and runs corner / G / elevation / stop logic
+6. **Stop** finalizes the trip (or deletes it if under 50 m), drops background GPS intent, ends the Live Activity, encodes a polyline, and runs waypoint analysis asynchronously
+7. On launch, orphaned mid-ride SwiftData rows and stale Live Activities from a force-quit are cleaned up
 
 ### Persistence (SwiftData)
 
@@ -227,6 +234,8 @@ MotoTripTrackerShared/            # App Group models shared with the widget (Act
 MotoTripTrackerWidgets/           # WidgetKit extension (Live Activity UI + Home Screen widgets)
 MotoTripTrackerTests/             # Unit tests (filters, detectors, parsers, …)
 MotoTripTrackerUITests/           # UI test targets
+docs/                             # Project guide + backend R&D notes
+Scripts/                          # Athens speed-limit pack builder
 ```
 
 ---
@@ -237,7 +246,8 @@ MotoTripTrackerUITests/           # UI test targets
 | --- | --- |
 | UI | SwiftUI, NavigationStack, MapKit |
 | Persistence | SwiftData |
-| Location | Core Location (background mode: `location`) |
+| Location | Core Location (`location` background mode); foreground updates on dashboard, background updates **only during active rides with Always** |
+| Geocoding / map items | MapKit (iOS 26 `MKMapItem(location:address:)`, `MKReverseGeocodingRequest`) |
 | Speed limits | Overpass API (OpenStreetMap) — no Google Maps API key |
 | Petrol stations | Overpass (fuel + opening hours) + MapKit enrichment |
 | Route weather | Open-Meteo forecast API (no API key) |
@@ -253,18 +263,44 @@ MotoTripTrackerUITests/           # UI test targets
 
 ## Permissions
 
-- **When In Use** location — record rides and show live speed
-- **Always** location — continue recording in background / screen locked  
-  Usage strings are set via `INFOPLIST_KEY_NSLocation*` in the Xcode project.
+| Permission | Purpose |
+| --- | --- |
+| **When In Use** | Live map, speed, and recording while the app is open |
+| **Always** | Continue recording when the screen locks or the app is backgrounded |
+
+Usage strings are set via `INFOPLIST_KEY_NSLocation*` in the Xcode project.
+
+**Recommended setup for real rides:** Settings → MotoTripTracker → Location → **Always**.
+
+| What you pick | Screen stays on (app open) | GPS while locked | Good for |
+| --- | --- | --- | --- |
+| **Always** | Yes, during active ride | Yes | Commutes, tours, navigation |
+| **While Using** | Yes, during active ride | No | Quick tests with phone unlocked |
+| **Allow Once** | Yes, during active ride | No | Avoid — expires and confuses prompts |
+| **Never** | — | No | App cannot record |
+
+Notes:
+- Pressing the **side button** or leaving the app (e.g. Settings) still locks the screen — that is normal iOS behavior.
+- The app only sets `allowsBackgroundLocationUpdates` during an **active ride** with **Always** authorization. Enabling it without Always crashes iOS (`CLClientIsBackgroundable` assertion).
+
+---
+
+## Documentation
+
+| Doc | Contents |
+| --- | --- |
+| [`docs/Project-Guide.md`](docs/Project-Guide.md) | Full codebase tour for new iOS developers — folders, flows, and source references |
+| [`docs/RND-Backend.md`](docs/RND-Backend.md) | Backend R&D — live buddy share, sync, leaderboards (not implemented yet) |
 
 ---
 
 ## Building & testing
 
 1. Open `MotoTripTracker.xcodeproj` in Xcode
-2. Select an iPhone simulator or device
-3. Build & run (`⌘R`)
-4. Unit tests: Product → Test, or:
+2. Select the **MotoTripTracker** scheme (not **MotoTripTrackerWidgets** — that launches the widget preview)
+3. Pick an iPhone simulator or device
+4. Build & run (`⌘R`)
+5. Unit tests: Product → Test, or:
 
 ```bash
 xcodebuild -scheme MotoTripTracker \

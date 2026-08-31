@@ -141,6 +141,25 @@ final class TripRepository {
         return trip.routePoints.sorted { $0.timestamp < $1.timestamp }
     }
 
+    /// Removes trips left open when the app was force-quit mid-ride (endTime still zero).
+    func recoverOrphanedTrips() {
+        let orphans = allTrips().filter { $0.endTime <= 0 && $0.startTime > 0 }
+        guard !orphans.isEmpty else { return }
+        for trip in orphans {
+            AppLogger.persistence.notice(
+                "Removing orphaned trip id=\(AppLogger.uuidShort(trip.id), privacy: .public)"
+            )
+            modelContext.delete(trip)
+        }
+        do {
+            try modelContext.save()
+        } catch {
+            AppLogger.persistence.error(
+                "Failed to remove orphaned trips: \(error.localizedDescription, privacy: .public)"
+            )
+        }
+    }
+
     func waypoints(for tripID: UUID) -> [RoutePoint] {
         routePoints(for: tripID).filter(\.isWaypoint)
     }

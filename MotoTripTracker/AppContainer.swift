@@ -1,5 +1,6 @@
 import Foundation
 import SwiftData
+import UIKit
 import WidgetKit
 import os
 import CoreLocation
@@ -62,7 +63,9 @@ final class AppContainer {
 
         // Widget snapshot can wait until after first frame — reloadAllTimelines is costly.
         Task { @MainActor in
+            repository.recoverOrphanedTrips()
             RideWidgetSnapshotPublisher.publish(from: repository)
+            RideLiveActivityController.shared.endStaleActivitiesIfNeeded()
         }
         AppLogger.app.info("AppContainer ready (SwiftData + services wired)")
     }
@@ -75,13 +78,19 @@ final class AppContainer {
         AppLogger.app.debug("First-interaction warm-up complete")
     }
 
+    /// Prevent auto-lock while a ride session is active (including paused).
+    func syncKeepScreenAwake() {
+        UIApplication.shared.isIdleTimerDisabled = tripManager.sessionState.isActive
+    }
+
     func startRide() {
         AppLogger.app.notice("Start ride requested")
         locationService.requestAlwaysForRideRecording()
         speedLimitService.reset()
         fuelService.resetRideConsumption()
         tripManager.startTrip()
-        locationService.startUpdating()
+        syncKeepScreenAwake()
+        locationService.startRideUpdating()
         if let location = locationService.lastLocation {
             speedLimitService.refresh(for: location)
             navigationService.updateOrigin(location.coordinate)
@@ -98,8 +107,9 @@ final class AppContainer {
     /// Call when the app returns to the foreground during an active ride.
     func resumeBackgroundTrackingIfNeeded() {
         guard tripManager.sessionState.isActive else { return }
+        syncKeepScreenAwake()
         locationService.requestAlwaysForRideRecording()
-        locationService.startUpdating()
+        locationService.startRideUpdating()
         if let location = locationService.lastLocation {
             speedLimitService.refresh(for: location)
             navigationService.updateOrigin(location.coordinate)
@@ -110,13 +120,15 @@ final class AppContainer {
     func pauseRide() {
         AppLogger.app.notice("Pause ride requested")
         tripManager.pauseTrip()
+        syncKeepScreenAwake()
         pushLiveActivityUpdate(force: true)
     }
 
     func resumeRide() {
         AppLogger.app.notice("Resume ride requested")
         tripManager.resumeTrip()
-        locationService.startUpdating()
+        syncKeepScreenAwake()
+        locationService.startRideUpdating()
         if let location = locationService.lastLocation {
             speedLimitService.refresh(for: location)
         }
@@ -128,6 +140,9 @@ final class AppContainer {
     func stopRide() -> Bool {
         AppLogger.app.notice("Stop ride requested")
         let saved = tripManager.stopTrip()
+        syncKeepScreenAwake()
+        // Drop background GPS intent; keep foreground updates for the dashboard map.
+        locationService.startUpdating()
         RideLiveActivityController.shared.end()
         RideWidgetSnapshotPublisher.publish(from: repository)
         return saved

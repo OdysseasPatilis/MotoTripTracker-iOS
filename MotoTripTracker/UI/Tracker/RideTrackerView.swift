@@ -128,10 +128,10 @@ struct RideTrackerView: View {
         }
         .onAppear {
             batteryLevel = BatteryReader.currentLevel()
-            app.locationService.requestAuthorization()
+            app.locationService.requestWhenInUseIfNeeded()
             app.locationService.refreshLocationEnabled()
             app.locationService.startUpdating()
-            UIApplication.shared.isIdleTimerDisabled = true
+            app.syncKeepScreenAwake()
             if let location = app.locationService.lastLocation {
                 app.speedLimitService.refresh(for: location)
             }
@@ -139,13 +139,16 @@ struct RideTrackerView: View {
         .onDisappear {
             if !session.isActive {
                 app.locationService.stopUpdating()
-                UIApplication.shared.isIdleTimerDisabled = false
+                app.syncKeepScreenAwake()
             }
+        }
+        .onChange(of: session.isActive) { _, _ in
+            app.syncKeepScreenAwake()
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 app.resumeBackgroundTrackingIfNeeded()
-                UIApplication.shared.isIdleTimerDisabled = session.isActive
+                app.syncKeepScreenAwake()
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIDevice.batteryLevelDidChangeNotification)) { _ in
@@ -523,7 +526,6 @@ struct RideTrackerView: View {
 
                 Button(role: .destructive) {
                     let saved = app.stopRide()
-                    UIApplication.shared.isIdleTimerDisabled = false
                     if !saved {
                         withAnimation {
                             discardBanner = "Ride too short — not saved"

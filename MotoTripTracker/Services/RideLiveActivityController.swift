@@ -86,4 +86,15 @@ final class RideLiveActivityController {
             AppLogger.app.notice("Live Activity ended")
         }
     }
+
+    /// End Live Activities left over from a force-quit mid-ride.
+    func endStaleActivitiesIfNeeded() {
+        let stale = Activity<RideActivityAttributes>.activities
+        guard !stale.isEmpty else { return }
+        for existing in stale {
+            Task { await existing.end(nil, dismissalPolicy: .immediate) }
+        }
+        activity = nil
+        AppLogger.app.notice("Ended \(stale.count) stale Live Activities from previous launch")
+    }
 }
