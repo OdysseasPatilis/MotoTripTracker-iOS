@@ -111,11 +111,18 @@ final class AppContainer {
         syncKeepScreenAwake()
         locationService.requestAlwaysForRideRecording()
         locationService.startRideUpdating()
+        locationService.reinforceRideUpdating()
         if let location = locationService.lastLocation {
             speedLimitService.refresh(for: location)
             navigationService.updateOrigin(location.coordinate)
         }
         pushLiveActivityUpdate(force: true)
+    }
+
+    /// Call when the app is about to be suspended (screen lock / home) during an active ride.
+    func prepareForBackgroundDuringRide() {
+        guard tripManager.sessionState.isActive, !tripManager.sessionState.isPaused else { return }
+        locationService.reinforceRideUpdating()
     }
 
     func pauseRide() {

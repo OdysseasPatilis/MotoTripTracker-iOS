@@ -41,6 +41,31 @@ struct MotoTripTrackerTests {
         #expect(filter.processedSpeed(from: drifting) == 0)
     }
 
+    @Test func speedFilterDerivesSpeedWhenReportedInvalid() {
+        let filter = SpeedFilter()
+        let t0 = Date(timeIntervalSince1970: 1_000_000)
+        let previous = CLLocation(
+            coordinate: CLLocationCoordinate2D(latitude: 37.98, longitude: 23.72),
+            altitude: 100,
+            horizontalAccuracy: 5,
+            verticalAccuracy: 5,
+            course: 0,
+            speed: -1,
+            timestamp: t0
+        )
+        let next = CLLocation(
+            coordinate: CLLocationCoordinate2D(latitude: 37.981, longitude: 23.72),
+            altitude: 100,
+            horizontalAccuracy: 5,
+            verticalAccuracy: 5,
+            course: 0,
+            speed: -1,
+            timestamp: t0.addingTimeInterval(1)
+        )
+        let derived = filter.processedSpeed(from: next, previous: previous)
+        #expect(derived > 0.83)
+    }
+
     @Test func stopDetectorCountsMovingWhenSpeedAboveThreshold() {
         let detector = StopDetector()
         var moving: Int64 = 0
@@ -67,6 +92,20 @@ struct MotoTripTrackerTests {
         }
         #expect(moving == 0)
         #expect(stopped == 5000)
+    }
+
+    @Test func stopDetectorUsesLastMotionForLongGaps() {
+        let detector = StopDetector()
+        var moving: Int64 = 0
+        var stopped: Int64 = 0
+        let base: TimeInterval = 1_000_000
+        detector.updateTimes(currentTime: base, isMoving: true) { _, _ in }
+        detector.updateTimes(currentTime: base + 120, isMoving: false, lastWasMoving: true) { m, s in
+            moving += m
+            stopped += s
+        }
+        #expect(moving == 120_000)
+        #expect(stopped == 0)
     }
 
     @Test func tripTimingRecomputerKeepsSubSecondIntervals() {

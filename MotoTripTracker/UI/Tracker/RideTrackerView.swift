@@ -150,9 +150,14 @@ struct RideTrackerView: View {
             app.syncKeepScreenAwake()
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active {
+            switch phase {
+            case .active:
                 app.resumeBackgroundTrackingIfNeeded()
                 app.syncKeepScreenAwake()
+            case .background, .inactive:
+                app.prepareForBackgroundDuringRide()
+            @unknown default:
+                break
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIDevice.batteryLevelDidChangeNotification)) { _ in

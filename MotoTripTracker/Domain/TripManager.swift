@@ -123,7 +123,7 @@ final class TripManager {
             return
         }
 
-        let currentSpeedMps = speedFilter.processedSpeed(from: location)
+        let currentSpeedMps = speedFilter.processedSpeed(from: location, previous: lastLocation)
         let isMoving = currentSpeedMps > Self.movingSpeedMps
         let rawSpeedKmh = currentSpeedMps * 3.6
 
@@ -285,7 +285,11 @@ final class TripManager {
     }
 
     private func applyTimeDelta(currentTime: TimeInterval, isMoving: Bool) {
-        stopDetector.updateTimes(currentTime: currentTime, isMoving: isMoving) { movingDeltaMs, stoppedDeltaMs in
+        stopDetector.updateTimes(
+            currentTime: currentTime,
+            isMoving: isMoving,
+            lastWasMoving: lastWasMoving
+        ) { movingDeltaMs, stoppedDeltaMs in
             movingTimeMs += movingDeltaMs
             stoppedTimeMs += stoppedDeltaMs
         }
