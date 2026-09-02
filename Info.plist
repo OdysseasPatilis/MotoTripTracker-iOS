@@ -14,8 +14,17 @@
 	</array>
 	<key>NSAppTransportSecurity</key>
 	<dict>
-		<key>NSAllowsLocalNetworking</key>
+		<!-- IMPORTANT: Do NOT also set NSAllowsLocalNetworking here.
+		     When that key is present, iOS ignores NSAllowsArbitraryLoads,
+		     and cleartext HTTP is blocked for hosts ATS does not treat as local. -->
+		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>MotoTripTracker needs local network access to upload rides to your Mac or home server while testing Cloud Sync.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_http._tcp</string>
+	</array>
 </dict>
 </plist>

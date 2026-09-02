@@ -506,6 +506,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.navigation";
+				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoads = YES;
 				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "MotoTripTracker needs Always location access so rides continue recording when the screen is locked or the app is in the background.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "MotoTripTracker needs your location to record motorcycle rides and show live speed, distance, and route.";
 				INFOPLIST_KEY_NSMotionUsageDescription = "MotoTripTracker uses motion sensors to measure G-force during your ride.";
@@ -550,6 +551,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.navigation";
+				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoads = YES;
 				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "MotoTripTracker needs Always location access so rides continue recording when the screen is locked or the app is in the background.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "MotoTripTracker needs your location to record motorcycle rides and show live speed, distance, and route.";
 				INFOPLIST_KEY_NSMotionUsageDescription = "MotoTripTracker uses motion sensors to measure G-force during your ride.";
