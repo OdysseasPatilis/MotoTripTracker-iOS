@@ -296,6 +296,7 @@ Usage strings are set via `INFOPLIST_KEY_NSLocation*` in the Xcode project.
 Notes:
 - Pressing the **side button** or leaving the app (e.g. Settings) still locks the screen — that is normal iOS behavior.
 - The app only sets `allowsBackgroundLocationUpdates` during an **active ride** with **Always** authorization. Enabling it without Always crashes iOS (`CLClientIsBackgroundable` assertion).
+- `UIBackgroundModes` → `location` must be present in the built `Info.plist` (declared in the repo root `Info.plist`). Without it, iOS suspends GPS when the screen locks even if Always is granted.
 
 ---
 

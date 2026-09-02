@@ -81,6 +81,11 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
     /// GPS for an active ride — background updates only when Always is granted.
     func startRideUpdating() {
         wantsBackgroundUpdates = true
+        if !Self.hasLocationBackgroundMode {
+            AppLogger.location.error(
+                "UIBackgroundModes/location missing from Info.plist — screen-lock recording cannot work"
+            )
+        }
         beginUpdatingIfNeeded()
         ensureBackgroundActivitySession()
     }
@@ -178,25 +183,39 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
     }
 
     nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        // Delegate runs on the main run loop — handle synchronously so background fixes
-        // are not deferred behind a Task while the app has limited execution time.
-        MainActor.assumeIsolated {
-            let status = manager.authorizationStatus
-            AppLogger.location.notice("Authorization changed → \(String(describing: status))")
-            // Do not call requestAlwaysAuthorization() from this delegate — re-entrancy
-            // here (especially after "Allow Once") can terminate the app on launch.
-            applyBackgroundConfiguration(restartIfNeeded: true)
-            if wantsBackgroundUpdates {
-                ensureBackgroundActivitySession()
+        // Prefer sync delivery on the main run loop so background wake-ups are not deferred.
+        let run = {
+            MainActor.assumeIsolated {
+                let status = manager.authorizationStatus
+                AppLogger.location.notice("Authorization changed → \(String(describing: status))")
+                // Do not call requestAlwaysAuthorization() from this delegate — re-entrancy
+                // here (especially after "Allow Once") can terminate the app on launch.
+                self.applyBackgroundConfiguration(restartIfNeeded: true)
+                if self.wantsBackgroundUpdates {
+                    self.ensureBackgroundActivitySession()
+                }
+                self.startIfAuthorized()
             }
-            startIfAuthorized()
+        }
+        if Thread.isMainThread {
+            run()
+        } else {
+            DispatchQueue.main.sync(execute: run)
         }
     }
 
     nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let location = locations.last else { return }
-        MainActor.assumeIsolated {
-            deliverLocationUpdate(location)
+        let run = {
+            MainActor.assumeIsolated {
+                self.deliverLocationUpdate(location)
+            }
+        }
+        if Thread.isMainThread {
+            run()
+        } else {
+            // Keep background wake-ups ordered; async Task can be delayed until unlock.
+            DispatchQueue.main.sync(execute: run)
         }
     }
 
@@ -214,8 +233,15 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
     }
 
     nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-        MainActor.assumeIsolated {
-            AppLogger.location.error("Location error: \(error.localizedDescription, privacy: .public)")
+        let run = {
+            MainActor.assumeIsolated {
+                AppLogger.location.error("Location error: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+        if Thread.isMainThread {
+            run()
+        } else {
+            DispatchQueue.main.async(execute: run)
         }
     }
 }
