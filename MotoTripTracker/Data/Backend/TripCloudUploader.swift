@@ -4,10 +4,10 @@ import os
 enum TripCloudUploader {
     private static let kmhToMps = 3.6
 
-    static func makePayload(trip: Trip, points: [RoutePoint]) -> UploadTripPayload {
+    static func makePayload(trip: Trip, points: [RoutePoint], userId: String) -> UploadTripPayload {
         UploadTripPayload(
             clientTripId: trip.id.uuidString,
-            userId: BackendUserIdStore.getOrCreate(),
+            userId: userId,
             startTimeMs: Int64(trip.startTime * 1000),
             endTimeMs: Int64(trip.endTime * 1000),
             distanceMeters: trip.distanceMeters,
@@ -40,21 +40,26 @@ enum TripCloudUploader {
         )
     }
 
-    static func enqueueUpload(payload: UploadTripPayload) {
+    static func enqueueUpload(trip: Trip, points: [RoutePoint]) {
         guard BackendSettings.isEnabled else {
             AppLogger.app.debug("Cloud upload skipped — backendBaseURL not set")
             return
         }
 
+        // Snapshot into a Sendable payload before leaving the model context.
+        let draft = makePayload(trip: trip, points: points, userId: "")
         Task.detached(priority: .utility) {
-            await runUpload(payload)
+            await runUpload(draft: draft)
         }
     }
 
-    static func uploadNow(payload: UploadTripPayload) async throws {
+    static func uploadNow(trip: Trip, points: [RoutePoint]) async throws {
         guard BackendSettings.isEnabled else {
             throw UploadError.backendDisabled
         }
+        let draft = makePayload(trip: trip, points: points, userId: "")
+        let userId = try await BackendUserIdStore.ensureServerProfile()
+        let payload = draft.withUserId(userId)
         try await upload(payload)
         AppLogger.app.notice("Cloud upload ok trip id=\(payload.clientTripId.prefix(8), privacy: .public)")
     }
@@ -84,8 +89,10 @@ enum TripCloudUploader {
         }
     }
 
-    private static func runUpload(_ payload: UploadTripPayload) async {
+    private static func runUpload(draft: UploadTripPayload) async {
         do {
+            let userId = try await BackendUserIdStore.ensureServerProfile()
+            let payload = draft.withUserId(userId)
             try await upload(payload)
             AppLogger.app.notice("Cloud upload ok trip id=\(payload.clientTripId.prefix(8), privacy: .public)")
         } catch {
@@ -188,4 +195,27 @@ struct UploadTripPayload: Encodable, Sendable {
     let title: String?
     let visibility: String
     let routePoints: [RoutePointPayload]
+
+    func withUserId(_ userId: String) -> UploadTripPayload {
+        UploadTripPayload(
+            clientTripId: clientTripId,
+            userId: userId,
+            startTimeMs: startTimeMs,
+            endTimeMs: endTimeMs,
+            distanceMeters: distanceMeters,
+            movingTime: movingTime,
+            stoppedTime: stoppedTime,
+            maxSpeed: maxSpeed,
+            maxGForce: maxGForce,
+            maxLateralGForce: maxLateralGForce,
+            elevationGain: elevationGain,
+            avgSpeed: avgSpeed,
+            cornerCount: cornerCount,
+            twistinessScore: twistinessScore,
+            encodedRoutePolyline: encodedRoutePolyline,
+            title: title,
+            visibility: visibility,
+            routePoints: routePoints
+        )
+    }
 }

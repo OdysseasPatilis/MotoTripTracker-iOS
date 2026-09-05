@@ -87,8 +87,7 @@ final class TripRepository {
             do {
                 try modelContext.save()
                 AppLogger.persistence.notice("Trip saved id=\(AppLogger.uuidShort(tripID), privacy: .public)")
-                let uploadPayload = TripCloudUploader.makePayload(trip: trip, points: points)
-                TripCloudUploader.enqueueUpload(payload: uploadPayload)
+                TripCloudUploader.enqueueUpload(trip: trip, points: points)
             } catch {
                 AppLogger.persistence.error("Failed to save finalized trip: \(error.localizedDescription, privacy: .public)")
             }
@@ -113,8 +112,7 @@ final class TripRepository {
             throw TripCloudUploader.UploadError.tripNotFound
         }
         let points = routePoints(for: id)
-        let payload = TripCloudUploader.makePayload(trip: trip, points: points)
-        try await TripCloudUploader.uploadNow(payload: payload)
+        try await TripCloudUploader.uploadNow(trip: trip, points: points)
     }
 
     func allTrips() -> [Trip] {

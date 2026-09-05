@@ -6,8 +6,10 @@ struct BackendSettingsView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var urlText = BackendSettings.baseURL
+    @State private var displayNameText = BackendUserIdStore.displayName
     @State private var testMessage: String?
     @State private var isTesting = false
+    @State private var isSaving = false
 
     var body: some View {
         let colors = theme.palette
@@ -27,11 +29,30 @@ struct BackendSettingsView: View {
                 }
 
                 Section {
+                    TextField("Rider", text: $displayNameText)
+                        .textInputAutocapitalization(.words)
+                        .autocorrectionDisabled()
+                } header: {
+                    Text("Display name")
+                } footer: {
+                    Text("Stored on the server as an anonymous profile. Used as your rider name for cloud uploads.")
+                }
+
+                Section {
                     HStack {
                         Text("Upload")
                         Spacer()
                         Text(BackendSettings.isEnabled ? "Enabled" : "Disabled")
                             .foregroundStyle(BackendSettings.isEnabled ? colors.neonGreen : colors.textSecondary)
+                            .fontWeight(.semibold)
+                    }
+                    HStack {
+                        Text("Profile")
+                        Spacer()
+                        Text(BackendUserIdStore.cachedProfileId == nil ? "Not registered" : "Registered")
+                            .foregroundStyle(
+                                BackendUserIdStore.cachedProfileId == nil ? colors.textSecondary : colors.neonGreen
+                            )
                             .fontWeight(.semibold)
                     }
                     HStack {
@@ -79,21 +100,45 @@ struct BackendSettingsView: View {
                         BackendSettings.setBaseURL("")
                         testMessage = nil
                     }
-                    .disabled(urlText.isEmpty)
+                    .disabled(urlText.isEmpty || isSaving)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Save") {
-                        BackendSettings.setBaseURL(urlText)
-                        dismiss()
+                    if isSaving {
+                        ProgressView()
+                    } else {
+                        Button("Save") {
+                            Task { await saveSettings() }
+                        }
+                        .fontWeight(.semibold)
+                        .tint(colors.neonGreen)
                     }
-                    .fontWeight(.semibold)
-                    .tint(colors.neonGreen)
                 }
             }
         }
         .onAppear {
             urlText = BackendSettings.baseURL
+            displayNameText = BackendUserIdStore.displayName
         }
+    }
+
+    @MainActor
+    private func saveSettings() async {
+        isSaving = true
+        defer { isSaving = false }
+        BackendSettings.setBaseURL(urlText)
+        urlText = BackendSettings.baseURL
+        BackendUserIdStore.setDisplayNameLocal(displayNameText)
+        displayNameText = BackendUserIdStore.displayName
+
+        if BackendSettings.isEnabled {
+            do {
+                _ = try await BackendUserIdStore.updateDisplayName(displayNameText)
+                testMessage = "Profile synced"
+            } catch {
+                testMessage = "Saved locally — profile sync failed: \(error.localizedDescription)"
+            }
+        }
+        dismiss()
     }
 
     @MainActor
