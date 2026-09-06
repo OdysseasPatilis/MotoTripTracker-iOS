@@ -35,10 +35,13 @@ struct RideTrackerView: View {
         let session = app.tripManager.sessionState
         let stats = session.stats
         let colors = theme.palette
-        let isOverLimit = session.isActive && !session.isPaused && stats.speed > Double(speedLimitKmh)
+        let riding = session.isActive && !session.isPaused
+        // Sign / dial warn as soon as you exceed the limit; full-screen flash only at +10 km/h.
+        let shouldFlashScreen = riding
+            && stats.speed >= Double(speedLimitKmh + OverLimitScreenFlash.screenFlashToleranceKmh)
         // While actively riding the map rotates and shows its compass at the top-right,
         // so the Options menu (same corner) is hidden to avoid overlap.
-        let isRiding = session.isActive && !session.isPaused
+        let isRiding = riding
 
         GeometryReader { geo in
             VStack(spacing: 0) {
@@ -98,7 +101,7 @@ struct RideTrackerView: View {
             bottomBar(session: session, colors: colors)
         }
         .overlay {
-            OverLimitScreenFlash(isActive: isOverLimit)
+            OverLimitScreenFlash(isActive: shouldFlashScreen)
                 .allowsHitTesting(false)
                 .ignoresSafeArea()
         }
@@ -754,6 +757,9 @@ enum OverLimitFlashPhase: Int {
 }
 
 struct OverLimitScreenFlash: View {
+    /// Full-screen flash starts this far above the posted limit (km/h). Sign still flashes sooner.
+    static let screenFlashToleranceKmh = 10
+
     let isActive: Bool
 
     var body: some View {

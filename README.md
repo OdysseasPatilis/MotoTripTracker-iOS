@@ -51,7 +51,7 @@ The app is the iOS counterpart of the Android **MotoTripTracker** project, with 
 - Automatic `maxspeed` lookup near your position
 - **Bundled Greater Athens pack** (~4k grid cells) for offline limits inside the metro area
 - **Overpass fallback** outside that pack, when a grid cell is empty, or when GPS speed is clearly above the packed limit (wrong nearby street)
-- **Over-limit warning**: sign flashes and a translucent full-screen flash overlays the dashboard
+- **Over-limit warning**: speed-limit sign flashes as soon as you exceed the limit; translucent full-screen flash starts at **+10 km/h** over the limit
 - Resilient lookup: multiple Overpass mirrors, expanding radii, highway priority, implied GR defaults when OSM has no `maxspeed` tag, disk grid cache with neighbor fallback
 - Rebuild Athens pack: `python3 Scripts/build_athens_speed_limit_pack.py`
 
