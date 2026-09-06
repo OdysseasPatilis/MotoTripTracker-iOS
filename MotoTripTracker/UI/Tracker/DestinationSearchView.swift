@@ -10,6 +10,7 @@ struct DestinationSearchView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var query = ""
+    @State private var history: [DestinationHistoryEntry] = []
 
     var body: some View {
         let colors = theme.palette
@@ -17,11 +18,59 @@ struct DestinationSearchView: View {
 
         NavigationStack {
             List {
-                if results.isEmpty {
+                if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    if history.isEmpty {
+                        Section {
+                            Text("Search for an address or place to set as your destination.")
+                                .font(.subheadline)
+                                .foregroundStyle(colors.textSecondary)
+                                .listRowBackground(Color.clear)
+                        }
+                    } else {
+                        Section("Recent") {
+                            ForEach(history) { entry in
+                                Button {
+                                    app.navigationService.beginPreview(
+                                        coordinate: CLLocationCoordinate2D(
+                                            latitude: entry.latitude,
+                                            longitude: entry.longitude
+                                        ),
+                                        name: entry.name,
+                                        subtitle: entry.subtitle
+                                    )
+                                    dismiss()
+                                } label: {
+                                    HStack(spacing: 12) {
+                                        Image(systemName: "clock.arrow.circlepath")
+                                            .font(.title3)
+                                            .foregroundStyle(colors.neonBlue)
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(entry.name)
+                                                .font(.body.weight(.medium))
+                                                .foregroundStyle(colors.textPrimary)
+                                            if !entry.subtitle.isEmpty {
+                                                Text(entry.subtitle)
+                                                    .font(.caption)
+                                                    .foregroundStyle(colors.textSecondary)
+                                            }
+                                        }
+                                        Spacer()
+                                    }
+                                    .contentShape(Rectangle())
+                                }
+                                .listRowBackground(colors.bgCard)
+                            }
+                            .onDelete { indexSet in
+                                for index in indexSet {
+                                    DestinationSearchHistory.remove(id: history[index].id)
+                                }
+                                history = DestinationSearchHistory.all()
+                            }
+                        }
+                    }
+                } else if results.isEmpty {
                     Section {
-                        Text(query.isEmpty
-                             ? "Search for an address or place to set as your destination."
-                             : "No matches yet.")
+                        Text("No matches yet.")
                             .font(.subheadline)
                             .foregroundStyle(colors.textSecondary)
                             .listRowBackground(Color.clear)
@@ -71,6 +120,7 @@ struct DestinationSearchView: View {
             }
             .onAppear {
                 query = app.navigationService.searchQuery
+                history = DestinationSearchHistory.all()
             }
         }
     }
