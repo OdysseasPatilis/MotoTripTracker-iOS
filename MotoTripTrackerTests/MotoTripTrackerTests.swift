@@ -487,4 +487,81 @@ struct MotoTripTrackerTests {
         #expect(highway.prioritizeHighway)
         #expect(highway.activeRadiusMeters == 10_000)
     }
+
+    @Test func destinationHistoryAddsNewestFirstAndCapsAt20() {
+        let suiteName = "test.moto.nav.history.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        for i in 0..<25 {
+            DestinationSearchHistory.add(
+                name: "Place \(i)",
+                subtitle: "Sub \(i)",
+                latitude: 37.9 + Double(i) * 0.001,
+                longitude: 23.7,
+                defaults: defaults
+            )
+        }
+        let all = DestinationSearchHistory.all(defaults: defaults)
+        #expect(all.count == 20)
+        #expect(all.first?.name == "Place 24")
+        #expect(all.last?.name == "Place 5")
+    }
+
+    @Test func destinationHistoryDedupesNearbyCoordinateToTop() {
+        let suiteName = "test.moto.nav.history.dedupe.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        DestinationSearchHistory.add(
+            name: "Old",
+            subtitle: "A",
+            latitude: 37.9800,
+            longitude: 23.7200,
+            defaults: defaults
+        )
+        DestinationSearchHistory.add(
+            name: "Other",
+            subtitle: "B",
+            latitude: 38.0,
+            longitude: 24.0,
+            defaults: defaults
+        )
+        DestinationSearchHistory.add(
+            name: "Updated",
+            subtitle: "C",
+            latitude: 37.98001,
+            longitude: 23.72001,
+            defaults: defaults
+        )
+        let all = DestinationSearchHistory.all(defaults: defaults)
+        #expect(all.count == 2)
+        #expect(all[0].name == "Updated")
+        #expect(all[0].subtitle == "C")
+    }
+
+    @Test func destinationHistoryRemoveById() {
+        let suiteName = "test.moto.nav.history.remove.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        DestinationSearchHistory.add(
+            name: "Keep",
+            subtitle: "",
+            latitude: 1,
+            longitude: 2,
+            defaults: defaults
+        )
+        DestinationSearchHistory.add(
+            name: "Drop",
+            subtitle: "",
+            latitude: 3,
+            longitude: 4,
+            defaults: defaults
+        )
+        let dropID = DestinationSearchHistory.all(defaults: defaults).first { $0.name == "Drop" }!.id
+        DestinationSearchHistory.remove(id: dropID, defaults: defaults)
+        let names = DestinationSearchHistory.all(defaults: defaults).map(\.name)
+        #expect(names == ["Keep"])
+    }
 }
