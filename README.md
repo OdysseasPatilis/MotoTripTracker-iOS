@@ -31,7 +31,8 @@ The app is the iOS counterpart of the Android **MotoTripTracker** project, with 
 - Requires Live Activities enabled in Settings; widgets appear after a long-press on the Home Screen → Widgets → MotoTripTracker
 
 ### Navigation (destination & route)
-- **Set destination** via search sheet (`MKLocalSearchCompleter` autocomplete)
+- **Set destination** via search sheet (`MKLocalSearchCompleter` autocomplete); **Recent** history for quick re-pick (**swipe to delete**)
+- Destination pick shows **alternate routes** on the map; **Start** begins turn-by-turn; **Cancel** clears preview
 - **Driving route** computed with `MKDirections` and drawn on the map in blue
 - **Compact turn HUD**: next-maneuver card at the **top** of the map (distance + one-line instruction); thin bottom chip for ETA / remaining, weather, voice mute, Apple Maps, and clear — so the map stays visible while navigating
 - **Spoken turns** (`AVSpeechSynthesizer`): announces approach (~250 m) and on step advance; mute from the bottom chip; prefers a Greek voice when available. Light haptic still fires on advance
