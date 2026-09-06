@@ -25,6 +25,24 @@ struct NavStep: Sendable, Identifiable, Hashable {
     }
 }
 
+enum NavigationPhase: String, Equatable, Sendable {
+    case idle
+    case previewing
+    case navigating
+}
+
+struct NavRouteOption: Identifiable, Equatable, Sendable {
+    let id: UUID
+    let coordinates: [CLLocationCoordinate2D]
+    let distanceMeters: Double
+    let expectedTravelTime: TimeInterval
+    let steps: [NavStep]
+
+    static func == (lhs: NavRouteOption, rhs: NavRouteOption) -> Bool {
+        lhs.id == rhs.id
+    }
+}
+
 /// Destination search, driving routes, and in-app turn-by-turn guidance.
 @Observable
 @MainActor
@@ -50,6 +68,10 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
     private(set) var isRouting = false
     private(set) var isOffRoute = false
     private(set) var isRecalculating = false
+    private(set) var phase: NavigationPhase = .idle
+    private(set) var previewRoutes: [NavRouteOption] = []
+    private(set) var selectedRouteID: UUID?
+    private(set) var previewErrorMessage: String?
 
     private(set) var steps: [NavStep] = []
     private(set) var currentStepIndex: Int = 0
@@ -107,6 +129,11 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
 
     var hasDestination: Bool { destinationCoordinate != nil }
     var hasRoute: Bool { routeCoordinates.count > 1 }
+    var selectedPreviewRoute: NavRouteOption? {
+        previewRoutes.first { $0.id == selectedRouteID } ?? previewRoutes.first
+    }
+    var isPreviewing: Bool { phase == .previewing }
+    var isNavigating: Bool { phase == .navigating }
 
     /// 0 at departure, 1 when the planned route is complete.
     var routeProgressFraction: Double {
@@ -147,6 +174,7 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
         )
         guard hasRoute else { return }
         recomputeRemaining(from: coordinate)
+        guard phase == .navigating else { return }
         advanceStepIfNeeded(from: coordinate)
         checkOffRouteAndRecalculate(from: coordinate)
     }
@@ -163,17 +191,65 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
             let coordinate = MapKitPlace.coordinate(of: item)
             let name = item.name ?? fallbackName
             Task { @MainActor in
-                self.setDestination(coordinate: coordinate, name: name)
+                self.beginPreview(
+                    coordinate: coordinate,
+                    name: name,
+                    subtitle: completion.subtitle
+                )
             }
         }
     }
 
-    func setDestination(coordinate: CLLocationCoordinate2D, name: String) {
+    func setDestination(coordinate: CLLocationCoordinate2D, name: String, subtitle: String = "") {
+        beginPreview(coordinate: coordinate, name: name, subtitle: subtitle)
+    }
+
+    func beginPreview(coordinate: CLLocationCoordinate2D, name: String, subtitle: String = "") {
+        DestinationSearchHistory.add(
+            name: name,
+            subtitle: subtitle,
+            latitude: coordinate.latitude,
+            longitude: coordinate.longitude
+        )
         destinationCoordinate = coordinate
         destinationName = name
         searchResults = []
         searchQuery = ""
-        computeRoute(isRecalculation: false)
+        previewErrorMessage = nil
+        previewRoutes = []
+        selectedRouteID = nil
+        steps = []
+        currentStepIndex = 0
+        approachedStepID = nil
+        announcedStepID = nil
+        voice.stop()
+        isOffRoute = false
+        phase = .previewing
+        computeRoute(isRecalculation: false, requestAlternates: true)
+    }
+
+    func selectPreviewRoute(id: UUID) {
+        guard phase == .previewing,
+              let option = previewRoutes.first(where: { $0.id == id }) else { return }
+        selectedRouteID = id
+        applyPreviewSelection(option)
+    }
+
+    func confirmStartNavigation() {
+        guard phase == .previewing, let option = selectedPreviewRoute else { return }
+        phase = .navigating
+        applyRoute(
+            coordinates: option.coordinates,
+            distance: option.distanceMeters,
+            travelTime: option.expectedTravelTime,
+            steps: option.steps,
+            isRecalculation: false
+        )
+        AppLogger.navigation.notice("Navigation started with selected preview route")
+    }
+
+    func cancelPreview() {
+        clear()
     }
 
     enum PetrolSearchOutcome: Sendable {
@@ -391,6 +467,10 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
         destinationCoordinate = nil
         destinationName = nil
         routeCoordinates = []
+        phase = .idle
+        previewRoutes = []
+        selectedRouteID = nil
+        previewErrorMessage = nil
         distanceRemaining = 0
         eta = nil
         steps = []
@@ -411,7 +491,7 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
         AppLogger.navigation.notice("Navigation cleared")
     }
 
-    private func computeRoute(isRecalculation: Bool) {
+    private func computeRoute(isRecalculation: Bool, requestAlternates: Bool = false) {
         guard let origin, let destinationCoordinate else { return }
         if isRecalculation {
             isRecalculating = true
@@ -423,32 +503,91 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
         request.source = MapKitPlace.mapItem(coordinate: origin)
         request.destination = MapKitPlace.mapItem(coordinate: destinationCoordinate)
         request.transportType = .automobile
+        request.requestsAlternateRoutes = requestAlternates && !isRecalculation
 
         MKDirections(request: request).calculate { response, error in
             if let error {
                 AppLogger.navigation.error("Directions failed: \(error.localizedDescription, privacy: .public)")
             }
-            let route = response?.routes.first
-            let coordinates = route?.polyline.coordinates ?? []
-            let distance = route?.distance ?? 0
-            let travelTime = route?.expectedTravelTime ?? 0
-            let navSteps: [NavStep] = (route?.steps ?? []).compactMap { step in
-                let instruction = step.instructions.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !instruction.isEmpty else { return nil }
-                let coords = step.polyline.coordinates
-                let end = coords.last ?? step.polyline.coordinate
-                return NavStep(instruction: instruction, distance: step.distance, endCoordinate: end)
-            }
+            let mkRoutes = response?.routes ?? []
             Task { @MainActor in
-                self.applyRoute(
-                    coordinates: coordinates,
-                    distance: distance,
-                    travelTime: travelTime,
-                    steps: navSteps,
-                    isRecalculation: isRecalculation
-                )
+                if self.phase == .previewing, !isRecalculation {
+                    self.applyPreviewRoutes(mkRoutes)
+                } else if let route = mkRoutes.first {
+                    let coordinates = route.polyline.coordinates
+                    let navSteps: [NavStep] = route.steps.compactMap { step in
+                        let instruction = step.instructions.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !instruction.isEmpty else { return nil }
+                        let stepCoords = step.polyline.coordinates
+                        let end = stepCoords.last ?? step.polyline.coordinate
+                        return NavStep(
+                            instruction: instruction,
+                            distance: step.distance,
+                            endCoordinate: end
+                        )
+                    }
+                    self.applyRoute(
+                        coordinates: coordinates,
+                        distance: route.distance,
+                        travelTime: route.expectedTravelTime,
+                        steps: navSteps,
+                        isRecalculation: isRecalculation
+                    )
+                } else {
+                    self.isRouting = false
+                    self.isRecalculating = false
+                    if self.phase == .previewing {
+                        self.previewErrorMessage = "Couldn't find a driving route."
+                    }
+                }
             }
         }
+    }
+
+    private func applyPreviewRoutes(_ mkRoutes: [MKRoute]) {
+        isRouting = false
+        isRecalculating = false
+        guard !mkRoutes.isEmpty else {
+            previewRoutes = []
+            selectedRouteID = nil
+            routeCoordinates = []
+            previewErrorMessage = "Couldn't find a driving route."
+            return
+        }
+        previewErrorMessage = nil
+        previewRoutes = mkRoutes.map { route in
+            let coords = route.polyline.coordinates
+            let navSteps: [NavStep] = route.steps.compactMap { step in
+                let instruction = step.instructions.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !instruction.isEmpty else { return nil }
+                let stepCoords = step.polyline.coordinates
+                let end = stepCoords.last ?? step.polyline.coordinate
+                return NavStep(instruction: instruction, distance: step.distance, endCoordinate: end)
+            }
+            return NavRouteOption(
+                id: UUID(),
+                coordinates: coords,
+                distanceMeters: route.distance,
+                expectedTravelTime: route.expectedTravelTime,
+                steps: navSteps
+            )
+        }
+        let first = previewRoutes[0]
+        selectedRouteID = first.id
+        applyPreviewSelection(first)
+    }
+
+    private func applyPreviewSelection(_ option: NavRouteOption) {
+        routeCoordinates = option.coordinates
+        totalRouteDistance = option.distanceMeters
+        totalTravelTime = option.expectedTravelTime
+        distanceRemaining = option.distanceMeters
+        eta = option.expectedTravelTime > 0
+            ? Date().addingTimeInterval(option.expectedTravelTime)
+            : nil
+        steps = []
+        currentStepIndex = 0
+        distanceToNextManeuver = 0
     }
 
     private func applyRoute(
