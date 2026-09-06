@@ -47,7 +47,7 @@ Last updated: 2026-08-30
 
 It is the iOS counterpart of an Android **MotoTripTracker** app. Domain ideas (trip loop, filters, Overpass limits) mirror that project; the stack here is **SwiftUI + SwiftData + MapKit + Core Location**.
 
-There is **no custom backend yet**. Everything durable lives on the device (SwiftData). See `docs/RND-Backend.md` for planned cloud / buddy-share ideas.
+There is **optional post-ride cloud upload** when you set a backend URL in **Options → Cloud Sync** (`TripCloudUploader`). Durable ride data still lives on-device in SwiftData. See `docs/RND-Backend.md` for planned multi-device sync / live buddy-share ideas beyond upload.
 
 **Bundle ID:** `com.odys.MotoTripTracker`  
 **Deployment target:** iOS 26.4 (see Xcode project `IPHONEOS_DEPLOYMENT_TARGET`)
@@ -432,7 +432,7 @@ python3 Scripts/build_athens_speed_limit_pack.py
 - Off-route ~**80 m** from polyline → recalculate (with cooldown)  
 - Callbacks `onRouteApplied` / `onRouteCleared` refresh weather  
 
-**Voice:** `Services/NavigationVoicePrompt.swift` (`AVSpeechSynthesizer`, prefers `el-GR` when available).
+**Voice:** `Services/NavigationVoicePrompt.swift` (`AVSpeechSynthesizer`, English `en-US` / enhanced English voices — MapKit step text is English).
 
 **UI:** top turn card + bottom chip in `RideTrackerView`; map polyline in `LiveRideMapView`.
 

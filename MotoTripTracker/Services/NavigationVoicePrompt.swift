@@ -1,7 +1,8 @@
 import AVFoundation
 import Foundation
 
-/// Speaks turn-by-turn prompts with the system voice (prefers Greek when available).
+/// Speaks turn-by-turn prompts with a clear English system voice.
+/// MapKit maneuver text is English, so we keep speech in English (not a localized accent).
 @MainActor
 final class NavigationVoicePrompt {
     private let synthesizer = AVSpeechSynthesizer()
@@ -26,7 +27,7 @@ final class NavigationVoicePrompt {
 
         synthesizer.stopSpeaking(at: .immediate)
         let utterance = AVSpeechUtterance(string: trimmed)
-        utterance.voice = Self.preferredVoice()
+        utterance.voice = Self.preferredEnglishVoice()
         utterance.rate = AVSpeechUtteranceDefaultSpeechRate * 0.95
         utterance.pitchMultiplier = 1.0
         synthesizer.speak(utterance)
@@ -36,11 +37,17 @@ final class NavigationVoicePrompt {
         synthesizer.stopSpeaking(at: .immediate)
     }
 
-    private static func preferredVoice() -> AVSpeechSynthesisVoice? {
-        if let greek = AVSpeechSynthesisVoice(language: "el-GR") {
-            return greek
+    private static func preferredEnglishVoice() -> AVSpeechSynthesisVoice? {
+        // Prefer enhanced/premium en-US when the device has it installed.
+        let english = AVSpeechSynthesisVoice.speechVoices().filter {
+            $0.language.hasPrefix("en-")
         }
-        return AVSpeechSynthesisVoice(language: Locale.current.identifier)
+        let enhanced = english.first {
+            $0.quality == .enhanced || $0.quality == .premium
+        }
+        return enhanced
             ?? AVSpeechSynthesisVoice(language: "en-US")
+            ?? AVSpeechSynthesisVoice(language: "en-GB")
+            ?? english.first
     }
 }
