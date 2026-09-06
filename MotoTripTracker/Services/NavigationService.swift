@@ -95,6 +95,7 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
     private var nearestRouteDistance: CLLocationDistance = 0
     private var approachedStepID: UUID?
     private var announcedStepID: UUID?
+    private var routeRequestGeneration: UInt64 = 0
 
     /// Called when a driving route is applied (initial or recalculated).
     var onRouteApplied: (([CLLocationCoordinate2D], TimeInterval) -> Void)?
@@ -205,6 +206,7 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
     }
 
     func beginPreview(coordinate: CLLocationCoordinate2D, name: String, subtitle: String = "") {
+        routeRequestGeneration &+= 1
         DestinationSearchHistory.add(
             name: name,
             subtitle: subtitle,
@@ -464,6 +466,7 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
     }
 
     func clear() {
+        routeRequestGeneration &+= 1
         destinationCoordinate = nil
         destinationName = nil
         routeCoordinates = []
@@ -493,6 +496,8 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
 
     private func computeRoute(isRecalculation: Bool, requestAlternates: Bool = false) {
         guard let origin, let destinationCoordinate else { return }
+        routeRequestGeneration &+= 1
+        let requestGeneration = routeRequestGeneration
         if isRecalculation {
             isRecalculating = true
         } else {
@@ -511,6 +516,12 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
             }
             let mkRoutes = response?.routes ?? []
             Task { @MainActor in
+                guard self.routeRequestGeneration == requestGeneration else { return }
+                if isRecalculation {
+                    guard self.phase == .navigating else { return }
+                } else {
+                    guard self.phase == .previewing else { return }
+                }
                 if self.phase == .previewing, !isRecalculation {
                     self.applyPreviewRoutes(mkRoutes)
                 } else if let route = mkRoutes.first {
