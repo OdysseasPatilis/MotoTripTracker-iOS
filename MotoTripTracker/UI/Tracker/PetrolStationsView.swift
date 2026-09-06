@@ -130,9 +130,10 @@ struct PetrolStationsView: View {
 
             HStack(spacing: 10) {
                 Button {
-                    app.navigationService.setDestination(
+                    app.navigationService.beginPreview(
                         coordinate: rec.coordinate,
-                        name: rec.name
+                        name: rec.name,
+                        subtitle: address ?? ""
                     )
                     UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                     dismiss()
