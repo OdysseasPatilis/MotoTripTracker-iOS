@@ -24,50 +24,19 @@ struct LiveRideMapView: View {
         let navigation = app.navigationService
         let traveled = app.tripManager.routeCoordinates
         let destination = navigation.destinationCoordinate
+        let previewItems = Self.previewPolylineItems(from: navigation)
 
         Map(position: $cameraPosition) {
             UserAnnotation()
-
-            if navigation.phase == .previewing {
-                ForEach(navigation.previewRoutes) { option in
-                    let isSelected = option.id == navigation.selectedRouteID
-                    MapPolyline(coordinates: option.coordinates)
-                        .stroke(
-                            colors.neonBlue.opacity(isSelected ? 1 : 0.35),
-                            style: StrokeStyle(
-                                lineWidth: isSelected ? 6 : 4,
-                                lineCap: .round,
-                                lineJoin: .round
-                            )
-                        )
-                }
-            } else if navigation.routeCoordinates.count > 1 {
-                MapPolyline(coordinates: navigation.routeCoordinates)
-                    .stroke(
-                        colors.neonBlue,
-                        style: StrokeStyle(lineWidth: 6, lineCap: .round, lineJoin: .round)
-                    )
-            }
-
-            if traveled.count > 1 {
-                MapPolyline(coordinates: traveled)
-                    .stroke(
-                        colors.mint,
-                        style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round)
-                    )
-            }
-
+            routeOverlays(
+                previewItems: previewItems,
+                activeRoute: navigation.phase == .previewing ? [] : navigation.routeCoordinates,
+                traveled: traveled,
+                routeColor: colors.neonBlue,
+                trailColor: colors.mint
+            )
             if let destination {
-                Annotation("Destination", coordinate: destination) {
-                    ZStack {
-                        Circle()
-                            .fill(colors.neonBlue)
-                            .frame(width: 28, height: 28)
-                        Image(systemName: "flag.checkered")
-                            .font(.caption2.weight(.bold))
-                            .foregroundStyle(.white)
-                    }
-                }
+                destinationAnnotation(coordinate: destination, color: colors.neonBlue)
             }
         }
         // Realistic elevation is expensive on first load; keep it for active rides only.
@@ -99,6 +68,71 @@ struct LiveRideMapView: View {
         }
         .onChange(of: navigation.selectedRouteID) { _, _ in
             fitPreviewRoute()
+        }
+    }
+
+    /// MapPolyline caches stroke by content id; bake selection into `id` so
+    /// highlight updates, and keep the selected route last for z-order.
+    private static func previewPolylineItems(from navigation: NavigationService) -> [PreviewPolylineItem] {
+        guard navigation.phase == .previewing else { return [] }
+        let selectedID = navigation.selectedRouteID
+        let alternates = navigation.previewRoutes
+            .filter { $0.id != selectedID }
+            .map { PreviewPolylineItem(id: "preview-alt-\($0.id)", coordinates: $0.coordinates, isSelected: false) }
+        let selected = navigation.previewRoutes
+            .filter { $0.id == selectedID }
+            .map { PreviewPolylineItem(id: "preview-selected-\($0.id)", coordinates: $0.coordinates, isSelected: true) }
+        return alternates + selected
+    }
+
+    @MapContentBuilder
+    private func routeOverlays(
+        previewItems: [PreviewPolylineItem],
+        activeRoute: [CLLocationCoordinate2D],
+        traveled: [CLLocationCoordinate2D],
+        routeColor: Color,
+        trailColor: Color
+    ) -> some MapContent {
+        ForEach(previewItems) { item in
+            MapPolyline(coordinates: item.coordinates)
+                .stroke(
+                    routeColor.opacity(item.isSelected ? 1 : 0.35),
+                    style: StrokeStyle(
+                        lineWidth: item.isSelected ? 6 : 4,
+                        lineCap: .round,
+                        lineJoin: .round
+                    )
+                )
+        }
+
+        if previewItems.isEmpty, activeRoute.count > 1 {
+            MapPolyline(coordinates: activeRoute)
+                .stroke(
+                    routeColor,
+                    style: StrokeStyle(lineWidth: 6, lineCap: .round, lineJoin: .round)
+                )
+        }
+
+        if traveled.count > 1 {
+            MapPolyline(coordinates: traveled)
+                .stroke(
+                    trailColor,
+                    style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round)
+                )
+        }
+    }
+
+    @MapContentBuilder
+    private func destinationAnnotation(coordinate: CLLocationCoordinate2D, color: Color) -> some MapContent {
+        Annotation("Destination", coordinate: coordinate) {
+            ZStack {
+                Circle()
+                    .fill(color)
+                    .frame(width: 28, height: 28)
+                Image(systemName: "flag.checkered")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.white)
+            }
         }
     }
 
@@ -148,4 +182,10 @@ struct LiveRideMapView: View {
             cameraPosition = .rect(paddedBounds)
         }
     }
+}
+
+private struct PreviewPolylineItem: Identifiable {
+    let id: String
+    let coordinates: [CLLocationCoordinate2D]
+    let isSelected: Bool
 }
