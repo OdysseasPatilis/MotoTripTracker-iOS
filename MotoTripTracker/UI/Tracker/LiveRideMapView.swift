@@ -174,9 +174,16 @@ struct LiveRideMapView: View {
 
         let polyline = MKPolyline(coordinates: coordinates, count: coordinates.count)
         let bounds = polyline.boundingMapRect
-        let horizontalPadding = max(bounds.width * 0.12, 1)
-        let verticalPadding = max(bounds.height * 0.12, 1)
-        let paddedBounds = bounds.insetBy(dx: -horizontalPadding, dy: -verticalPadding)
+        let horizontalPadding = max(bounds.width * 0.18, 1)
+        let topPadding = max(bounds.height * 0.18, 1)
+        // Extra south padding so the route sits above the bottom preview card overlay.
+        let bottomPadding = max(bounds.height * 0.70, topPadding * 3)
+
+        var paddedBounds = bounds
+        paddedBounds.origin.x -= horizontalPadding
+        paddedBounds.origin.y -= topPadding
+        paddedBounds.size.width += horizontalPadding * 2
+        paddedBounds.size.height += topPadding + bottomPadding
 
         withAnimation(.easeInOut(duration: 0.45)) {
             cameraPosition = .rect(paddedBounds)
