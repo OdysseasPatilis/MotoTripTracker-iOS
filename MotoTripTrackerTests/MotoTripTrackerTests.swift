@@ -564,4 +564,21 @@ struct MotoTripTrackerTests {
         let names = DestinationSearchHistory.all(defaults: defaults).map(\.name)
         #expect(names == ["Keep"])
     }
+
+    @Test @MainActor func routePreviewWaitsForGpsThenRetries() {
+        let service = NavigationService()
+        let destination = CLLocationCoordinate2D(latitude: 37.9838, longitude: 23.7275)
+
+        service.beginPreview(coordinate: destination, name: "Destination")
+
+        #expect(service.isPreviewing)
+        #expect(!service.isRouting)
+        #expect(service.previewRoutes.isEmpty)
+        #expect(service.previewErrorMessage == "Waiting for your location…")
+
+        service.updateOrigin(CLLocationCoordinate2D(latitude: 37.97, longitude: 23.71))
+
+        #expect(service.isRouting)
+        #expect(service.previewErrorMessage == nil)
+    }
 }

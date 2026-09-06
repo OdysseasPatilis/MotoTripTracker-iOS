@@ -173,6 +173,12 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
             latitudinalMeters: 60_000,
             longitudinalMeters: 60_000
         )
+        if phase == .previewing,
+           previewRoutes.isEmpty,
+           !isRouting,
+           destinationCoordinate != nil {
+            computeRoute(isRecalculation: false, requestAlternates: true)
+        }
         guard hasRoute else { return }
         recomputeRemaining(from: coordinate)
         guard phase == .navigating else { return }
@@ -495,13 +501,20 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
     }
 
     private func computeRoute(isRecalculation: Bool, requestAlternates: Bool = false) {
-        guard let origin, let destinationCoordinate else { return }
+        guard let origin else {
+            if phase == .previewing, !isRecalculation {
+                previewErrorMessage = "Waiting for your location…"
+            }
+            return
+        }
+        guard let destinationCoordinate else { return }
         routeRequestGeneration &+= 1
         let requestGeneration = routeRequestGeneration
         if isRecalculation {
             isRecalculating = true
         } else {
             isRouting = true
+            previewErrorMessage = nil
         }
 
         let request = MKDirections.Request()
