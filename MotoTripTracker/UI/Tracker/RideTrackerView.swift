@@ -59,7 +59,7 @@ struct RideTrackerView: View {
                                     optionsMenu(colors: colors)
                                 }
                             }
-                            if app.navigationService.hasDestination {
+                            if app.navigationService.isNavigating {
                                 topTurnBanner(colors: colors)
                                     .padding(.horizontal, 10)
                             }
@@ -68,15 +68,18 @@ struct RideTrackerView: View {
                     }
                     .overlay(alignment: .bottom) {
                         Group {
-                            if app.navigationService.hasDestination {
-                                activeRouteChip(colors: colors)
-                            } else {
+                            switch app.navigationService.phase {
+                            case .idle:
                                 VStack(spacing: 8) {
                                     if session.isActive, !app.locationService.hasAlwaysAuthorization {
                                         alwaysLocationBanner(colors: colors)
                                     }
                                     idleNavOverlay(colors: colors)
                                 }
+                            case .previewing:
+                                routePreviewCard(colors: colors)
+                            case .navigating:
+                                activeRouteChip(colors: colors)
                             }
                         }
                         .padding(.horizontal, 10)
@@ -444,6 +447,103 @@ struct RideTrackerView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(.ultraThinMaterial, in: Capsule())
+        .padding(.horizontal, 2)
+    }
+
+    private func routePreviewCard(colors: AppPalette) -> some View {
+        let nav = app.navigationService
+        let canStart = nav.selectedRouteID != nil
+            && !nav.isRouting
+            && nav.previewErrorMessage == nil
+
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "flag.checkered")
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(colors.neonBlue)
+                Text(nav.destinationName ?? "Destination")
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(colors.textPrimary)
+                    .lineLimit(1)
+            }
+
+            if nav.isRouting {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(colors.neonBlue)
+                    Text("Finding routes…")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(colors.textSecondary)
+                }
+            } else if let errorMessage = nav.previewErrorMessage {
+                Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(colors.routeAmber)
+            } else {
+                HStack(spacing: 8) {
+                    ForEach(Array(nav.previewRoutes.enumerated()), id: \.element.id) { index, option in
+                        let isSelected = option.id == nav.selectedRouteID
+                        Button {
+                            nav.selectPreviewRoute(id: option.id)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(index == 0 ? "Fastest" : "Route \(index + 1)")
+                                    .font(.caption.weight(.bold))
+                                Text(
+                                    "\(NavigationService.formatDistance(option.distanceMeters)) · "
+                                        + "\(Int((option.expectedTravelTime / 60).rounded())) min"
+                                )
+                                .font(.caption2.weight(.medium))
+                            }
+                            .foregroundStyle(isSelected ? colors.textPrimary : colors.textSecondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 8)
+                            .background(
+                                isSelected ? colors.neonBlue.opacity(0.18) : Color.clear,
+                                in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            )
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .stroke(
+                                        isSelected ? colors.neonGreen : colors.textMuted.opacity(0.35),
+                                        lineWidth: isSelected ? 1.5 : 1
+                                    )
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+
+            HStack(spacing: 8) {
+                Button {
+                    nav.cancelPreview()
+                } label: {
+                    Text("Cancel")
+                        .font(.caption.weight(.bold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                }
+                .buttonStyle(.bordered)
+                .tint(colors.textSecondary)
+
+                Button {
+                    nav.confirmStartNavigation()
+                } label: {
+                    Text("Start")
+                        .font(.caption.weight(.bold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(colors.neonGreen)
+                .disabled(!canStart)
+            }
+        }
+        .padding(12)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .padding(.horizontal, 2)
     }
 
