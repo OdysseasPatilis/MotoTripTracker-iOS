@@ -18,6 +18,9 @@ struct RideTrackerView: View {
 
     private var speedLimitKmh: Int { app.speedLimitService.effectiveLimitKmh }
 
+    /// Bottom panel shows the full dial + G-force card; ride stats scroll in underneath.
+    private static let speedometerViewportHeight: CGFloat = 370
+
     /// Prefer live Core Location accuracy so the toolbar updates even when idle.
     private var dashboardGpsAccuracy: Double? {
         let accuracy = app.locationService.lastLocation?.horizontalAccuracy
@@ -46,7 +49,7 @@ struct RideTrackerView: View {
         GeometryReader { geo in
             VStack(spacing: 0) {
                 LiveRideMapView()
-                    .frame(height: geo.size.height * 0.46)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .overlay(alignment: .top) {
                         VStack(alignment: .leading, spacing: 8) {
                             HStack(alignment: .top, spacing: 8) {
@@ -87,20 +90,22 @@ struct RideTrackerView: View {
                     }
                     .clipped()
 
+                // Viewport tall enough for the dial; stats sit below and scroll into view.
                 ScrollView {
                     VStack(spacing: 20) {
                         speedometerCard(stats: stats, colors: colors)
                         statsGrid(stats: stats, colors: colors)
                     }
                     .padding(.horizontal, 16)
-                    .padding(.top, 16)
+                    .padding(.top, 4)
                     .padding(.bottom, 24)
                 }
+                .frame(height: Self.speedometerViewportHeight)
                 .background(colors.bgDeep)
             }
         }
         .background(colors.bgDeep.ignoresSafeArea())
-        .safeAreaInset(edge: .bottom) {
+        .safeAreaInset(edge: .bottom, spacing: 0) {
             bottomBar(session: session, colors: colors)
         }
         .overlay {
@@ -676,7 +681,7 @@ struct RideTrackerView: View {
             }
         }
         .padding(.horizontal, 16)
-        .padding(.top, 10)
+        .padding(.top, 0)
         .padding(.bottom, 8)
         .background(.bar)
     }

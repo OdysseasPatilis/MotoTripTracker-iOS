@@ -9,7 +9,7 @@ The app is the iOS counterpart of the Android **MotoTripTracker** project, with 
 ## Features
 
 ### Live ride tracking
-- **Split dashboard**: live MapKit map on top (~46%), speedometer + stats below
+- **Split dashboard**: live MapKit map on top (fills leftover space), original-size speedometer flush above Start / Pause, ride stats scroll below the dial like before
 - **Live map** with follow-camera and 3D pitch while riding; gentle top-down view when idle
 - **Traveled trail** drawn on the map as a mint polyline during the session
 - **Start / pause / resume / stop** with **keep-screen-on while a ride is active** (including paused) so auto-lock does not dim the dashboard mid-ride
