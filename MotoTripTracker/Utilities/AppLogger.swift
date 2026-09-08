@@ -11,6 +11,7 @@ nonisolated enum AppLogger {
     static let trip = Logger(subsystem: subsystem, category: "Trip")
     static let persistence = Logger(subsystem: subsystem, category: "Persistence")
     static let speedLimit = Logger(subsystem: subsystem, category: "SpeedLimit")
+    static let trafficCamera = Logger(subsystem: subsystem, category: "TrafficCamera")
     static let navigation = Logger(subsystem: subsystem, category: "Navigation")
     static let waypoint = Logger(subsystem: subsystem, category: "Waypoint")
     static let sensors = Logger(subsystem: subsystem, category: "Sensors")

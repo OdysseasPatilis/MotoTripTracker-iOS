@@ -13,6 +13,7 @@ final class AppContainer {
     let tripManager: TripManager
     let locationService: LocationService
     let speedLimitService: SpeedLimitService
+    let trafficCameraService: TrafficCameraService
     let navigationService: NavigationService
     let fuelService: FuelService
     let petrolPreferences: PetrolPreferences
@@ -27,10 +28,12 @@ final class AppContainer {
 
         let repository = TripRepository(modelContext: container.mainContext)
         let speedLimitService = SpeedLimitService()
+        let trafficCameraService = TrafficCameraService()
         self.repository = repository
         self.tripManager = TripManager(repository: repository)
         self.locationService = LocationService()
         self.speedLimitService = speedLimitService
+        self.trafficCameraService = trafficCameraService
         self.navigationService = NavigationService()
         self.fuelService = FuelService()
         self.petrolPreferences = PetrolPreferences()
@@ -52,6 +55,7 @@ final class AppContainer {
             let session = self.tripManager.sessionState
             if session.isActive, !session.isPaused {
                 self.fuelService.updateConsumedDistance(tripDistanceKm: session.stats.distanceKm)
+                self.trafficCameraService.refresh(for: location)
             }
             if self.navigationService.hasRoute {
                 self.routeWeatherService.refreshAhead(
@@ -88,12 +92,14 @@ final class AppContainer {
         AppLogger.app.notice("Start ride requested")
         locationService.requestAlwaysForRideRecording()
         speedLimitService.reset()
+        trafficCameraService.reset()
         fuelService.resetRideConsumption()
         tripManager.startTrip()
         syncKeepScreenAwake()
         locationService.startRideUpdating()
         if let location = locationService.lastLocation {
             speedLimitService.refresh(for: location)
+            trafficCameraService.refresh(for: location)
             navigationService.updateOrigin(location.coordinate)
         }
         RideLiveActivityController.shared.start()
@@ -115,6 +121,9 @@ final class AppContainer {
         if let location = locationService.lastLocation {
             speedLimitService.refresh(for: location)
             navigationService.updateOrigin(location.coordinate)
+            if !tripManager.sessionState.isPaused {
+                trafficCameraService.refresh(for: location)
+            }
         }
         pushLiveActivityUpdate(force: true)
     }
@@ -139,6 +148,7 @@ final class AppContainer {
         locationService.startRideUpdating()
         if let location = locationService.lastLocation {
             speedLimitService.refresh(for: location)
+            trafficCameraService.refresh(for: location)
         }
         pushLiveActivityUpdate(force: true)
     }
@@ -148,6 +158,7 @@ final class AppContainer {
     func stopRide() -> Bool {
         AppLogger.app.notice("Stop ride requested")
         let saved = tripManager.stopTrip()
+        trafficCameraService.reset()
         syncKeepScreenAwake()
         // Drop background GPS intent; keep foreground updates for the dashboard map.
         locationService.startUpdating()

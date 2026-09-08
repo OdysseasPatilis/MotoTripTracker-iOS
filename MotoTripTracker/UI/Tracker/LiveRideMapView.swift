@@ -38,6 +38,13 @@ struct LiveRideMapView: View {
             if let destination {
                 destinationAnnotation(coordinate: destination, color: colors.neonBlue)
             }
+            if isRiding {
+                cameraAnnotations(
+                    cameras: app.trafficCameraService.nearbyCameras,
+                    speedColor: colors.routeAmber,
+                    redLightColor: colors.neonBlue
+                )
+            }
         }
         // Realistic elevation is expensive on first load; keep it for active rides only.
         .mapStyle(
@@ -133,6 +140,26 @@ struct LiveRideMapView: View {
                 Image(systemName: "flag.checkered")
                     .font(.caption2.weight(.bold))
                     .foregroundStyle(.white)
+            }
+        }
+    }
+
+    @MapContentBuilder
+    private func cameraAnnotations(
+        cameras: [TrafficCamera],
+        speedColor: Color,
+        redLightColor: Color
+    ) -> some MapContent {
+        ForEach(cameras) { camera in
+            Annotation(camera.kind == .speed ? "Speed camera" : "Red light camera", coordinate: camera.coordinate) {
+                ZStack {
+                    Circle()
+                        .fill(camera.kind == .speed ? speedColor : redLightColor)
+                        .frame(width: 22, height: 22)
+                    Image(systemName: camera.kind == .speed ? "camera.fill" : "trafficlight.fill")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(.white)
+                }
             }
         }
     }

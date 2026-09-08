@@ -67,6 +67,10 @@ struct RideTrackerView: View {
                                 topTurnBanner(colors: colors)
                                     .padding(.horizontal, 10)
                             }
+                            if let alert = app.trafficCameraService.activeAlert {
+                                trafficCameraBanner(alert, colors: colors)
+                                    .padding(.horizontal, 10)
+                            }
                         }
                         .padding(.top, 4)
                     }
@@ -442,6 +446,22 @@ struct RideTrackerView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private func trafficCameraBanner(_ alert: TrafficCameraAlert, colors: AppPalette) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: alert.camera.kind == .speed ? "camera.fill" : "trafficlight.fill")
+                .foregroundStyle(colors.routeAmber)
+            Text(alert.bannerText)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(colors.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .accessibilityLabel(alert.bannerText)
     }
 
     private func activeRouteChip(colors: AppPalette) -> some View {

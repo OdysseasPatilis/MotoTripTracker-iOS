@@ -609,4 +609,83 @@ struct MotoTripTrackerTests {
         MotoTravelEstimator.learn(from: result)
         #expect(MotoTravelEstimator.storedFilterBenefit > 0.40)
     }
+
+    @Test func trafficCameraWarnDistanceClampsBySpeed() {
+        #expect(TrafficCameraLogic.warnDistanceMeters(speedMps: -1) == 250)
+        #expect(TrafficCameraLogic.warnDistanceMeters(speedMps: 0) == 250)
+        #expect(TrafficCameraLogic.warnDistanceMeters(speedMps: 40) == 320) // 40*8
+        #expect(TrafficCameraLogic.warnDistanceMeters(speedMps: 100) == 700)
+    }
+
+    @Test func trafficCameraAheadFilterUsesHeading() {
+        #expect(
+            TrafficCameraLogic.isAhead(
+                riderHeadingDegrees: 0,
+                bearingToCameraDegrees: 10,
+                speedMps: 15
+            )
+        )
+        #expect(
+            !TrafficCameraLogic.isAhead(
+                riderHeadingDegrees: 0,
+                bearingToCameraDegrees: 180,
+                speedMps: 15
+            )
+        )
+        // Slow / uncertain: treat as ahead so city crawl still warns.
+        #expect(
+            TrafficCameraLogic.isAhead(
+                riderHeadingDegrees: 0,
+                bearingToCameraDegrees: 180,
+                speedMps: 2
+            )
+        )
+    }
+
+    @Test func trafficCameraKindFromOSMTags() {
+        #expect(TrafficCameraLogic.kind(fromOSMTags: ["highway": "speed_camera"]) == .speed)
+        #expect(TrafficCameraLogic.kind(fromOSMTags: ["enforcement": "maxspeed"]) == .speed)
+        #expect(TrafficCameraLogic.kind(fromOSMTags: ["enforcement": "traffic_signals"]) == .redLight)
+        #expect(TrafficCameraLogic.kind(fromOSMTags: ["highway": "traffic_signals"]) == nil)
+    }
+
+    @Test func trafficCameraPackDecodesPointList() throws {
+        let json = """
+        {
+          "id": "athens_traffic_cameras",
+          "name": "Greater Athens traffic cameras",
+          "version": 1,
+          "bbox": {"south": 37.82, "west": 23.55, "north": 38.15, "east": 23.95},
+          "cameras": [
+            {"id": "osm:node/1", "lat": 37.97, "lon": 23.72, "kind": "speed"},
+            {"id": "osm:node/2", "lat": 37.98, "lon": 23.73, "kind": "redLight"}
+          ]
+        }
+        """.data(using: .utf8)!
+        let pack = try TrafficCameraRegionPackStore.decode(json)
+        #expect(pack.id == "athens_traffic_cameras")
+        #expect(pack.cameras.count == 2)
+        #expect(pack.contains(latitude: 37.97, longitude: 23.72))
+        #expect(!pack.contains(latitude: 40.0, longitude: 23.72))
+        #expect(pack.cameras[0].kind == .speed)
+        #expect(pack.cameras[1].kind == .redLight)
+    }
+
+    @Test func trafficCameraParsesOverpassElements() {
+        let json = """
+        {
+          "elements": [
+            {"type":"node","id":10,"lat":37.97,"lon":23.72,"tags":{"highway":"speed_camera"}},
+            {"type":"way","id":20,"center":{"lat":37.98,"lon":23.73},"tags":{"enforcement":"traffic_signals"}},
+            {"type":"node","id":30,"lat":37.99,"lon":23.74,"tags":{"highway":"bus_stop"}}
+          ]
+        }
+        """.data(using: .utf8)!
+        let cameras = TrafficCameraService.parseOverpassCameras(from: json)
+        #expect(cameras.count == 2)
+        #expect(cameras[0].id == "osm:node/10")
+        #expect(cameras[0].kind == .speed)
+        #expect(cameras[1].id == "osm:way/20")
+        #expect(cameras[1].kind == .redLight)
+    }
 }

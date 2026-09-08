@@ -47,6 +47,7 @@ The app is the iOS counterpart of the Android **MotoTripTracker** project, with 
 - **Spoken turns** (`AVSpeechSynthesizer`): announces approach (~250 m) and on step advance; mute from the bottom chip; uses an English voice (MapKit instructions are English). Light haptic still fires on advance
 - **Off-route recalculation** when you stray ~80 m from the planned polyline (cooldown to avoid spam)
 - **Distance remaining** and **ETA** update as you move
+- **Traffic cameras** (speed + red-light): while recording a ride, nearby OSM cameras appear on the map; approaching one triggers voice + haptic + a short banner (warn distance scales with speed). Greater Athens ships offline via `athens_traffic_cameras.json`; elsewhere (and as fill-in) uses Overpass. Mute nav voice to silence camera prompts too.
 - **Nearest petrol** opens a **recommendation list** ranked by saved brand order (e.g. Shell → BP), preferred octane (**95 / 98 / 100**), open status, then distance. Search radius **adapts to context** — tighter in cities (2–10 km), wider in towns/rural (20–50 km), and **highway-biased** when riding fast on motorways. Each card shows **Open now / Closed now / Hours unknown** (from OSM when tagged), short hours when available, **preference-match stars** (brand + octane fit — Apple Maps ratings are not readable by apps), Preferred / Highway / octane chips, and address when MapKit provides one. **Details** opens Apple’s place card; compact **Go** opens route preview, where **Start** begins turn-by-turn navigation. Stations marked closed in OSM are filtered out.
 - **Route weather** (Open-Meteo): when a route is computed, forecasts are sampled along the plan at estimated arrival times. Tap the weather glyph on the bottom chip for the full timeline
 - **Open in Apple Maps** for handoff; clear route from the bottom chip
@@ -63,7 +64,7 @@ The app is the iOS counterpart of the Android **MotoTripTracker** project, with 
 - **Overpass fallback** outside that pack, when a grid cell is empty, or when GPS speed is clearly above the packed limit (wrong nearby street)
 - **Over-limit warning**: speed-limit sign flashes as soon as you exceed the limit; translucent full-screen flash starts at **+10 km/h** over the limit
 - Resilient lookup: multiple Overpass mirrors, expanding radii, highway priority, implied GR defaults when OSM has no `maxspeed` tag, disk grid cache with neighbor fallback
-- Rebuild Athens pack: `python3 Scripts/build_athens_speed_limit_pack.py`
+- Rebuild Athens packs: `python3 Scripts/build_athens_speed_limit_pack.py` and `python3 Scripts/build_athens_traffic_cameras_pack.py`
 
 ### Physics & ride quality
 - **Longitudinal G** from GPS speed deltas (clamped), resistant to handlebar vibration
