@@ -100,7 +100,8 @@ The app is the iOS counterpart of the Android **MotoTripTracker** project, with 
 - MapKit route polyline with a **continuous speed gradient** (teal → blue → coral; slower → faster) or elevation coloring
 - Segmented Speed / Elevation layers
 - Elevation or speed profile chart
-- Waypoints (start/end, top speed, summit, stops, etc.) with reverse-geocoded labels where available
+- Waypoints (start/end, top speed, summit, stops, etc.) with reverse-geocoded labels where available; Full Route **re-runs analysis** if markers were missing after a background finalize
+- If stored route points fail to load, Full Route **falls back to the trip’s encoded polyline** so the map is not blank (replay detail may be limited)
 - **Route replay**: play / pause / scrub timeline at 1×–4× speed; map follows the rider with traveled vs remaining route highlighted; live speed readout during playback
 
 ### UI & theming
@@ -206,7 +207,7 @@ flowchart TB
 3. Screen stay-awake is enabled for the active session
 4. Each fix is validated (`SpeedFilter`), then fed to `TripManager`, `SpeedLimitService`, and `NavigationService` (route ETA + weather-ahead refresh when a destination is set)
 5. `TripManager` updates `TripStats`, persists route points via `TripRepository`, and runs corner / G / elevation / stop logic
-6. **Stop** finalizes the trip (or deletes it if under 50 m), drops background GPS intent, ends the Live Activity, encodes a polyline, runs waypoint analysis asynchronously, and **enqueues a cloud upload** when a backend URL is configured
+6. **Stop** finalizes the trip (or deletes it if under 50 m), drops background GPS intent, ends the Live Activity, **encodes and saves the polyline immediately**, runs **waypoint analysis asynchronously afterward** (so a long reverse-geocode pass cannot block the route path), and **enqueues a cloud upload** when a backend URL is configured
 7. On launch, orphaned mid-ride SwiftData rows and stale Live Activities from a force-quit are cleaned up; under-counted moving/stopped times on saved trips are repaired from route points
 
 ### Persistence (SwiftData)
