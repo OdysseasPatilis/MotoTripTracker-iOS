@@ -3,6 +3,7 @@ import CoreLocation
 import MapKit
 import SwiftUI
 import UIKit
+import os
 
 enum MapLayer: String, CaseIterable, Identifiable {
     case speed = "Speed"
@@ -16,6 +17,7 @@ struct FullRouteView: View {
 
     let tripID: UUID
     @State private var points: [RoutePoint] = []
+    @State private var displayCoordinates: [CLLocationCoordinate2D] = []
     @State private var waypoints: [RoutePoint] = []
     @State private var selectedLayer: MapLayer = .speed
     @State private var cameraPosition: MapCameraPosition = .automatic
@@ -26,6 +28,7 @@ struct FullRouteView: View {
     @State private var replayAnchor = Date()
     @State private var replayStartElapsed: TimeInterval = 0
     @State private var selectedWaypointID: UUID?
+    @State private var usingPolylineFallback = false
 
     private var replayEngine: RouteReplayEngine { RouteReplayEngine(points: points) }
     private var replayFrame: RouteReplayFrame? { replayEngine.frame(at: replayElapsed) }
@@ -104,6 +107,13 @@ struct FullRouteView: View {
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             loadRouteData()
+            Task {
+                await app.repository.ensureWaypointsAnalyzed(tripID: tripID)
+                let refreshed = app.repository.waypoints(for: tripID)
+                if refreshed.count != waypoints.count {
+                    waypoints = refreshed
+                }
+            }
         }
         .onDisappear {
             isReplaying = false
@@ -169,15 +179,49 @@ struct FullRouteView: View {
     }
 
     private func loadRouteData() {
-        points = app.repository.routePoints(for: tripID)
-        waypoints = app.repository.waypoints(for: tripID)
-        tripDistanceKm = (app.repository.fetchTrip(id: tripID)?.distanceMeters ?? 0) / 1000
-        replayElapsed = 0
-        isReplaying = false
-        let coords = points.map {
+        let trip = app.repository.fetchTrip(id: tripID)
+        var loaded = app.repository.routePoints(for: tripID)
+        usingPolylineFallback = false
+
+        // Summary can show a route from the encoded polyline even when the
+        // SwiftData relationship fault returns no points (seen after long
+        // background rides). Reconstruct a display path so Full Route is not blank.
+        if loaded.count < 2,
+           let encoded = trip?.encodedRoutePolyline,
+           !encoded.isEmpty {
+            let decoded = PolylineEncoder.decode(encoded)
+            if decoded.count >= 2 {
+                let start = trip?.startTime ?? Date().timeIntervalSince1970
+                let end = trip?.endTime ?? start + Double(max(decoded.count - 1, 1))
+                let span = max(end - start, Double(decoded.count - 1))
+                loaded = decoded.enumerated().map { index, coord in
+                    let t = decoded.count == 1
+                        ? start
+                        : start + span * Double(index) / Double(decoded.count - 1)
+                    return RoutePoint(
+                        latitude: coord.lat,
+                        longitude: coord.lng,
+                        altitude: 0,
+                        speedMps: 0,
+                        timestamp: t
+                    )
+                }
+                usingPolylineFallback = true
+                AppLogger.persistence.warning(
+                    "FullRoute fallback to encoded polyline id=\(AppLogger.uuidShort(tripID), privacy: .public) verts=\(decoded.count)"
+                )
+            }
+        }
+
+        points = loaded
+        displayCoordinates = loaded.map {
             CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude)
         }
-        if let region = Self.region(fitting: coords) {
+        waypoints = usingPolylineFallback ? [] : app.repository.waypoints(for: tripID)
+        tripDistanceKm = (trip?.distanceMeters ?? 0) / 1000
+        replayElapsed = 0
+        isReplaying = false
+        if let region = Self.region(fitting: displayCoordinates) {
             cameraPosition = .region(region)
         }
     }
@@ -259,7 +303,9 @@ struct FullRouteView: View {
         let remaining = replayFrame.flatMap { remainingReplayCoordinates(from: $0) } ?? []
 
         return Map(position: $cameraPosition) {
-            if let frame = replayFrame, replayEngine.isValid {
+            // Only split traveled/remaining while actively replaying. Idle used to
+            // stay in this branch at t=0 (empty green stub + easy-to-miss gray line).
+            if isReplaying, let frame = replayFrame, replayEngine.isValid {
                 if traveled.count >= 2 {
                     MapPolyline(coordinates: traveled)
                         .stroke(colors.neonGreen, lineWidth: 6)
@@ -279,8 +325,8 @@ struct FullRouteView: View {
                             .overlay(Circle().stroke(colors.bgDeep, lineWidth: 2))
                     }
                 }
-            } else {
-                ForEach(Array(segments(colors: colors).enumerated()), id: \.offset) { _, segment in
+            } else if displayCoordinates.count >= 2 {
+                ForEach(Array(mergedSegments(colors: colors).enumerated()), id: \.offset) { _, segment in
                     MapPolyline(coordinates: segment.coordinates)
                         .stroke(segment.color, lineWidth: 5)
                 }
@@ -324,6 +370,17 @@ struct FullRouteView: View {
         }
         .mapStyle(.standard(elevation: .realistic))
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(alignment: .topLeading) {
+            if usingPolylineFallback {
+                Text("Route from saved path · limited replay detail")
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(.black.opacity(0.55), in: Capsule())
+                    .padding(10)
+            }
+        }
     }
 
     private func remainingReplayCoordinates(from frame: RouteReplayFrame) -> [CLLocationCoordinate2D] {
@@ -437,7 +494,9 @@ struct FullRouteView: View {
             let a = points[i]
             let b = points[i + 1]
             let color: Color
-            if selectedLayer == .speed {
+            if usingPolylineFallback {
+                color = colors.neonBlue
+            } else if selectedLayer == .speed {
                 let kmh = a.speedMps * 3.6
                 let t = maxS > minS ? (kmh - minS) / (maxS - minS) : 0.5
                 color = speedGradientColor(t: t, colors: colors)
@@ -457,6 +516,37 @@ struct FullRouteView: View {
             )
         }
         return result
+    }
+
+    /// Merge adjacent same-color edges so long rides don't create thousands of MapPolyline views.
+    private func mergedSegments(colors: AppPalette) -> [RouteSegment] {
+        let raw = segments(colors: colors)
+        guard let first = raw.first else { return [] }
+        var merged: [RouteSegment] = []
+        var currentCoords = first.coordinates
+        var currentColor = first.color
+
+        for segment in raw.dropFirst() {
+            if colorsApproximatelyEqual(segment.color, currentColor) {
+                if let last = segment.coordinates.last {
+                    currentCoords.append(last)
+                }
+            } else {
+                merged.append(RouteSegment(coordinates: currentCoords, color: currentColor))
+                currentCoords = segment.coordinates
+                currentColor = segment.color
+            }
+        }
+        merged.append(RouteSegment(coordinates: currentCoords, color: currentColor))
+        return merged
+    }
+
+    private func colorsApproximatelyEqual(_ a: Color, _ b: Color) -> Bool {
+        var ar: CGFloat = 0, ag: CGFloat = 0, ab: CGFloat = 0, aa: CGFloat = 0
+        var br: CGFloat = 0, bg: CGFloat = 0, bb: CGFloat = 0, ba: CGFloat = 0
+        UIColor(a).getRed(&ar, green: &ag, blue: &ab, alpha: &aa)
+        UIColor(b).getRed(&br, green: &bg, blue: &bb, alpha: &ba)
+        return abs(ar - br) < 0.02 && abs(ag - bg) < 0.02 && abs(ab - bb) < 0.02
     }
 
     /// Continuous teal → blue → coral by relative speed (no Slow / Cruise / Fast buckets).

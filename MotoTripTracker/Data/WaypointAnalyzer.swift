@@ -22,7 +22,7 @@ enum WaypointAnalyzer {
         startPoint.isWaypoint = true
         startPoint.waypointType = "START"
         startPoint.waypointTitle = "Departure"
-        startPoint.waypointSubtitle = await streetName(
+        startPoint.waypointSubtitle = coordinateLabel(
             latitude: startPoint.latitude,
             longitude: startPoint.longitude
         )
@@ -46,6 +46,7 @@ enum WaypointAnalyzer {
 
         var stopStart: RoutePoint?
         var distanceAtStopStart = 0.0
+        var restStops: [RoutePoint] = []
 
         if points.count > 2 {
             for i in 1..<(points.count - 1) {
@@ -80,11 +81,8 @@ enum WaypointAnalyzer {
                         default:
                             stop.waypointType = "REST_STOP"
                             stop.waypointTitle = "Rest Stop"
-                            let address = await streetName(
-                                latitude: stop.latitude,
-                                longitude: stop.longitude
-                            )
-                            stop.waypointSubtitle = "\(address) - \(timeStr) pause"
+                            stop.waypointSubtitle = "\(kmString)km - \(timeStr) pause"
+                            restStops.append(stop)
                         }
                     }
                     stopStart = nil
@@ -96,17 +94,37 @@ enum WaypointAnalyzer {
         endPoint.isWaypoint = true
         endPoint.waypointType = "END"
         endPoint.waypointTitle = "Arrival"
+        endPoint.waypointSubtitle = coordinateLabel(
+            latitude: endPoint.latitude,
+            longitude: endPoint.longitude
+        )
+
+        // Geocode only a few labels — reverse geocoding every stop on a long ride
+        // used to block finalize for minutes (or never finish in background).
+        startPoint.waypointSubtitle = await streetName(
+            latitude: startPoint.latitude,
+            longitude: startPoint.longitude
+        )
         endPoint.waypointSubtitle = await streetName(
             latitude: endPoint.latitude,
             longitude: endPoint.longitude
         )
+        for stop in restStops.prefix(3) {
+            let address = await streetName(latitude: stop.latitude, longitude: stop.longitude)
+            let existing = stop.waypointSubtitle
+            stop.waypointSubtitle = existing.isEmpty ? address : "\(address) · \(existing)"
+        }
 
         let marked = points.filter(\.isWaypoint).count
         AppLogger.waypoint.notice("Waypoint analysis complete — \(marked) markers on \(points.count) points")
     }
 
+    private static func coordinateLabel(latitude: Double, longitude: Double) -> String {
+        String(format: "%.4f° N, %.4f° E", latitude, longitude)
+    }
+
     private static func streetName(latitude: Double, longitude: Double) async -> String {
-        let fallback = String(format: "%.4f° N, %.4f° E", latitude, longitude)
+        let fallback = coordinateLabel(latitude: latitude, longitude: longitude)
         let location = CLLocation(latitude: latitude, longitude: longitude)
         guard let request = MKReverseGeocodingRequest(location: location) else {
             return fallback

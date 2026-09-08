@@ -71,26 +71,52 @@ final class TripRepository {
             "Finalizing trip id=\(AppLogger.uuidShort(tripID), privacy: .public) points=\(points.count) dist=\(finalStats.distanceKm, format: .fixed(precision: 2))km"
         )
 
-        Task {
-            await WaypointAnalyzer.analyzeAndMarkWaypoints(
-                points: points,
-                totalDistanceMeters: finalStats.distanceMeters
+        // Persist the polyline immediately so Summary / share work even if waypoint
+        // geocoding is slow or interrupted (common on long background rides).
+        let coords = points.map { (lat: $0.latitude, lng: $0.longitude) }
+        if !coords.isEmpty {
+            trip.encodedRoutePolyline = PolylineEncoder.encode(coords)
+            AppLogger.persistence.info(
+                "Polyline encoded chars=\(trip.encodedRoutePolyline?.count ?? 0) from \(coords.count) points"
             )
+        }
+        do {
+            try modelContext.save()
+            AppLogger.persistence.notice("Trip stats+polyline saved id=\(AppLogger.uuidShort(tripID), privacy: .public)")
+            TripCloudUploader.enqueueUpload(trip: trip, points: points)
+        } catch {
+            AppLogger.persistence.error("Failed to save finalized trip: \(error.localizedDescription, privacy: .public)")
+        }
+
+        Task {
+            await ensureWaypointsAnalyzed(tripID: tripID, totalDistanceMeters: finalStats.distanceMeters)
+        }
+    }
+
+    /// Marks START/END/summit/stops when missing. Safe to call again from Full Route.
+    func ensureWaypointsAnalyzed(tripID: UUID, totalDistanceMeters: Double? = nil) async {
+        let points = routePoints(for: tripID)
+        guard !points.isEmpty else { return }
+        if points.contains(where: \.isWaypoint) {
+            return
+        }
+        let distance = totalDistanceMeters
+            ?? fetchTrip(id: tripID)?.distanceMeters
+            ?? 0
+        await WaypointAnalyzer.analyzeAndMarkWaypoints(
+            points: points,
+            totalDistanceMeters: distance
+        )
+        do {
+            try modelContext.save()
             let waypointCount = points.filter(\.isWaypoint).count
-            let coords = points.map { (lat: $0.latitude, lng: $0.longitude) }
-            if !coords.isEmpty {
-                trip.encodedRoutePolyline = PolylineEncoder.encode(coords)
-                AppLogger.persistence.info(
-                    "Polyline encoded chars=\(trip.encodedRoutePolyline?.count ?? 0) waypoints=\(waypointCount)"
-                )
-            }
-            do {
-                try modelContext.save()
-                AppLogger.persistence.notice("Trip saved id=\(AppLogger.uuidShort(tripID), privacy: .public)")
-                TripCloudUploader.enqueueUpload(trip: trip, points: points)
-            } catch {
-                AppLogger.persistence.error("Failed to save finalized trip: \(error.localizedDescription, privacy: .public)")
-            }
+            AppLogger.persistence.info(
+                "Waypoints saved id=\(AppLogger.uuidShort(tripID), privacy: .public) count=\(waypointCount)"
+            )
+        } catch {
+            AppLogger.persistence.error(
+                "Failed to save waypoints: \(error.localizedDescription, privacy: .public)"
+            )
         }
     }
 
@@ -146,6 +172,17 @@ final class TripRepository {
     }
 
     func routePoints(for tripID: UUID) -> [RoutePoint] {
+        // Prefer an explicit fetch — relationship arrays can appear empty under memory
+        // pressure after long background rides even when rows exist.
+        let descriptor = FetchDescriptor<RoutePoint>(
+            predicate: #Predicate { point in
+                point.trip?.id == tripID
+            },
+            sortBy: [SortDescriptor(\.timestamp, order: .forward)]
+        )
+        if let fetched = try? modelContext.fetch(descriptor), !fetched.isEmpty {
+            return fetched
+        }
         guard let trip = fetchTrip(id: tripID) else { return [] }
         return trip.routePoints.sorted { $0.timestamp < $1.timestamp }
     }
