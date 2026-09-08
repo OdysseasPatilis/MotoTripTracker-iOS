@@ -43,7 +43,8 @@ struct LiveRideMapView: View {
         .mapStyle(
             .standard(
                 elevation: isRiding ? .realistic : .flat,
-                pointsOfInterest: .excludingAll
+                pointsOfInterest: .excludingAll,
+                showsTraffic: true
             )
         )
         .mapControls {

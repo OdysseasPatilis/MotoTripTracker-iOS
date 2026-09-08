@@ -38,8 +38,12 @@ The app is the iOS counterpart of the Android **MotoTripTracker** project, with 
 ### Navigation (destination & route)
 - **Set destination** via search sheet (`MKLocalSearchCompleter` autocomplete); **Recent** history for quick re-pick (**swipe to delete**)
 - Destination pick shows **alternate routes** on the map; **Start** begins turn-by-turn; **Cancel** clears preview
-- **Driving route** computed with `MKDirections` and drawn on the map in blue
-- **Compact turn HUD**: next-maneuver card at the **top** of the map (distance + one-line instruction); thin bottom chip for ETA / remaining, weather, voice mute, Apple Maps, and clear — so the map stays visible while navigating
+- **Driving route** computed with `MKDirections` (automobile + **traffic-aware** `departureDate`) and drawn on the map in blue
+- **Live traffic** shown on the dashboard MapKit map (`showsTraffic`)
+- **Moto ETA** on preview and guidance: car traffic delays are only partly applied (bikes can filter); the factor **learns** from your completed navigations
+- After a guided trip ends (you arrive, or clear the route), a short banner compares **actual time vs car traffic ETA**
+- **Auto-arrives** within ~45 m of the destination (with a short dwell) and ends guidance, speaks “You have arrived”, then shows the timing banner
+- **Compact turn HUD**: next-maneuver card at the **top** of the map (distance + one-line instruction); thin bottom chip for remaining distance / moto ETA, optional “Cars +N min” hint, weather, voice mute, Apple Maps, and clear — so the map stays visible while navigating
 - **Spoken turns** (`AVSpeechSynthesizer`): announces approach (~250 m) and on step advance; mute from the bottom chip; uses an English voice (MapKit instructions are English). Light haptic still fires on advance
 - **Off-route recalculation** when you stray ~80 m from the planned polyline (cooldown to avoid spam)
 - **Distance remaining** and **ETA** update as you move

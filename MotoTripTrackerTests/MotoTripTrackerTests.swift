@@ -581,4 +581,32 @@ struct MotoTripTrackerTests {
         #expect(service.isRouting)
         #expect(service.previewErrorMessage == nil)
     }
+
+    @Test func motoTravelEstimatorCutsCarTrafficDelay() {
+        let distanceMeters = 10_000.0
+        let car: TimeInterval = 30 * 60
+        let estimate = MotoTravelEstimator.estimate(
+            distanceMeters: distanceMeters,
+            carTravelTime: car,
+            filterBenefit: 0.5
+        )
+        #expect(estimate.trafficDelay > 0)
+        #expect(estimate.motoTravelTime < estimate.carTravelTime)
+        #expect(estimate.motoTravelTime > estimate.baselineTravelTime)
+    }
+
+    @Test func motoTravelEstimatorLearnsFromBeatingCarETA() {
+        let before = MotoTravelEstimator.storedFilterBenefit
+        defer { MotoTravelEstimator.storedFilterBenefit = before }
+
+        MotoTravelEstimator.storedFilterBenefit = 0.40
+        let result = NavTimingResult(
+            distanceMeters: 12_000,
+            carEstimate: 40 * 60,
+            motoEstimate: 28 * 60,
+            actual: 22 * 60
+        )
+        MotoTravelEstimator.learn(from: result)
+        #expect(MotoTravelEstimator.storedFilterBenefit > 0.40)
+    }
 }

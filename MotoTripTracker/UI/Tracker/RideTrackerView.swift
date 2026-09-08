@@ -15,6 +15,7 @@ struct RideTrackerView: View {
     @State private var showBackendSettings = false
     @State private var showPetrolPicker = false
     @State private var showRouteWeather = false
+    @State private var timingBanner: String?
 
     private var speedLimitKmh: Int { app.speedLimitService.effectiveLimitKmh }
 
@@ -74,6 +75,9 @@ struct RideTrackerView: View {
                             switch app.navigationService.phase {
                             case .idle:
                                 VStack(spacing: 8) {
+                                    if let timingBanner {
+                                        timingResultBanner(timingBanner, colors: colors)
+                                    }
                                     if session.isActive, !app.locationService.hasAlwaysAuthorization {
                                         alwaysLocationBanner(colors: colors)
                                     }
@@ -82,7 +86,17 @@ struct RideTrackerView: View {
                             case .previewing:
                                 routePreviewCard(colors: colors)
                             case .navigating:
-                                activeRouteChip(colors: colors)
+                                VStack(spacing: 6) {
+                                    if let hint = app.navigationService.trafficHintText {
+                                        Text(hint)
+                                            .font(.caption2.weight(.semibold))
+                                            .foregroundStyle(colors.routeAmber)
+                                            .padding(.horizontal, 10)
+                                            .padding(.vertical, 4)
+                                            .background(.ultraThinMaterial, in: Capsule())
+                                    }
+                                    activeRouteChip(colors: colors)
+                                }
                             }
                         }
                         .padding(.horizontal, 10)
@@ -159,6 +173,23 @@ struct RideTrackerView: View {
         }
         .onChange(of: session.isActive) { _, _ in
             app.syncKeepScreenAwake()
+        }
+        .onChange(of: app.navigationService.lastTimingResult) { _, result in
+            guard let result else { return }
+            withAnimation(.easeInOut(duration: 0.25)) {
+                timingBanner = result.summaryLine
+            }
+            Task {
+                try? await Task.sleep(for: .seconds(8))
+                await MainActor.run {
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        if timingBanner == result.summaryLine {
+                            timingBanner = nil
+                            app.navigationService.dismissTimingResult()
+                        }
+                    }
+                }
+            }
         }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
@@ -388,6 +419,31 @@ struct RideTrackerView: View {
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
+    private func timingResultBanner(_ text: String, colors: AppPalette) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "flag.checkered")
+                .foregroundStyle(colors.neonGreen)
+            Text(text)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(colors.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+            Button {
+                withAnimation {
+                    timingBanner = nil
+                    app.navigationService.dismissTimingResult()
+                }
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(colors.textSecondary)
+            }
+            .accessibilityLabel("Dismiss timing summary")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
     private func activeRouteChip(colors: AppPalette) -> some View {
         let nav = app.navigationService
         @Bindable var weather = app.routeWeatherService
@@ -496,10 +552,14 @@ struct RideTrackerView: View {
                                 Text(index == 0 ? "Fastest" : "Route \(index + 1)")
                                     .font(.caption.weight(.bold))
                                 Text(
-                                    "\(NavigationService.formatDistance(option.distanceMeters)) · "
-                                        + "\(Int((option.expectedTravelTime / 60).rounded())) min"
+                                    "\(NavigationService.formatDistance(option.distanceMeters)) · Moto \(MotoTravelEstimator.formatMinutes(option.motoTravelTime))"
                                 )
                                 .font(.caption2.weight(.medium))
+                                if option.trafficDelay >= 90 {
+                                    Text("Cars \(MotoTravelEstimator.formatMinutes(option.expectedTravelTime))")
+                                        .font(.caption2)
+                                        .foregroundStyle(isSelected ? colors.routeAmber : colors.textMuted)
+                                }
                             }
                             .foregroundStyle(isSelected ? colors.textPrimary : colors.textSecondary)
                             .frame(maxWidth: .infinity, alignment: .leading)

@@ -35,7 +35,11 @@ struct NavRouteOption: Identifiable, Equatable, Sendable {
     let id: UUID
     let coordinates: [CLLocationCoordinate2D]
     let distanceMeters: Double
+    /// MapKit automobile ETA (typically traffic-aware).
     let expectedTravelTime: TimeInterval
+    /// Motorcycle-adjusted ETA (filters part of car traffic delay).
+    let motoTravelTime: TimeInterval
+    let trafficDelay: TimeInterval
     let steps: [NavStep]
 
     static func == (lhs: NavRouteOption, rhs: NavRouteOption) -> Bool {
@@ -73,6 +77,9 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
     private(set) var selectedRouteID: UUID?
     private(set) var previewErrorMessage: String?
 
+    /// Last completed navigation timing (car vs moto vs actual), for a short HUD banner.
+    private(set) var lastTimingResult: NavTimingResult?
+
     private(set) var steps: [NavStep] = []
     private(set) var currentStepIndex: Int = 0
     /// Distance from the rider to the end of the current maneuver.
@@ -90,7 +97,11 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
     private let voice = NavigationVoicePrompt()
     private var origin: CLLocationCoordinate2D?
     private var totalRouteDistance: CLLocationDistance = 0
+    /// Active guidance uses moto-adjusted remaining time scaling.
     private var totalTravelTime: TimeInterval = 0
+    private var plannedCarTravelTime: TimeInterval = 0
+    private var plannedMotoTravelTime: TimeInterval = 0
+    private var navigationStartedAt: Date?
     private var lastRecalculateAt: Date = .distantPast
     private var nearestRouteDistance: CLLocationDistance = 0
     private var approachedStepID: UUID?
@@ -108,6 +119,14 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
     /// Speak an approach prompt once when within this distance of the maneuver.
     private static let approachAnnounceMeters: CLLocationDistance = 250
     private static let recalculateCooldown: TimeInterval = 12
+    /// Arrive when within this of the destination pin…
+    private static let arrivalThresholdMeters: CLLocationDistance = 45
+    /// …and remaining route distance is also small (avoids early finish if you pass the pin).
+    private static let arrivalRemainingMaxMeters: CLLocationDistance = 120
+    /// Require a short dwell so a single GPS bounce doesn't end guidance.
+    private static let arrivalDwell: TimeInterval = 2.5
+
+    private var arrivalCandidateSince: Date?
 
     override init() {
         super.init()
@@ -151,7 +170,15 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
     var summaryText: String {
         let distanceString = Self.formatDistance(distanceRemaining)
         guard let eta else { return distanceString }
-        return "\(distanceString) · ETA \(eta.formatted(date: .omitted, time: .shortened))"
+        return "\(distanceString) · Moto ETA \(eta.formatted(date: .omitted, time: .shortened))"
+    }
+
+    /// Extra chip line when car traffic is meaningfully worse than the moto estimate.
+    var trafficHintText: String? {
+        guard phase == .navigating || phase == .previewing else { return nil }
+        let delay = plannedCarTravelTime - plannedMotoTravelTime
+        guard delay >= 90 else { return nil }
+        return "Cars +\(MotoTravelEstimator.formatMinutes(delay))"
     }
 
     /// Compact line for the Live Activity / HUD secondary line.
@@ -165,7 +192,7 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
     }
 
     /// Called on every GPS fix. Updates search region, remaining distance/ETA,
-    /// turn-by-turn step progress, and triggers off-route recalculation.
+    /// turn-by-turn step progress, off-route recalculation, and auto-arrival.
     func updateOrigin(_ coordinate: CLLocationCoordinate2D) {
         origin = coordinate
         completer.region = MKCoordinateRegion(
@@ -184,6 +211,7 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
         guard phase == .navigating else { return }
         advanceStepIfNeeded(from: coordinate)
         checkOffRouteAndRecalculate(from: coordinate)
+        checkArrival(from: coordinate)
     }
 
     func selectCompletion(_ completion: MKLocalSearchCompletion) {
@@ -246,14 +274,22 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
     func confirmStartNavigation() {
         guard phase == .previewing, let option = selectedPreviewRoute else { return }
         phase = .navigating
+        navigationStartedAt = Date()
+        plannedCarTravelTime = option.expectedTravelTime
+        plannedMotoTravelTime = option.motoTravelTime
+        lastTimingResult = nil
+        arrivalCandidateSince = nil
         applyRoute(
             coordinates: option.coordinates,
             distance: option.distanceMeters,
-            travelTime: option.expectedTravelTime,
+            carTravelTime: option.expectedTravelTime,
+            motoTravelTime: option.motoTravelTime,
             steps: option.steps,
             isRecalculation: false
         )
-        AppLogger.navigation.notice("Navigation started with selected preview route")
+        AppLogger.navigation.notice(
+            "Navigation started car=\(Int(option.expectedTravelTime))s moto=\(Int(option.motoTravelTime))s"
+        )
     }
 
     func cancelPreview() {
@@ -471,7 +507,11 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
         item.openInMaps(launchOptions: [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving])
     }
 
-    func clear() {
+    func clear(stopVoice: Bool = true) {
+        // When called from completeArrival, timing was already finalized.
+        if navigationStartedAt != nil {
+            finalizeTimingIfNeeded()
+        }
         routeRequestGeneration &+= 1
         destinationCoordinate = nil
         destinationName = nil
@@ -487,6 +527,10 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
         distanceToNextManeuver = 0
         totalRouteDistance = 0
         totalTravelTime = 0
+        plannedCarTravelTime = 0
+        plannedMotoTravelTime = 0
+        navigationStartedAt = nil
+        arrivalCandidateSince = nil
         isRouting = false
         isOffRoute = false
         isRecalculating = false
@@ -495,9 +539,83 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
         searchResults = []
         approachedStepID = nil
         announcedStepID = nil
-        voice.stop()
+        if stopVoice {
+            voice.stop()
+        }
         onRouteCleared?()
         AppLogger.navigation.notice("Navigation cleared")
+    }
+
+    func dismissTimingResult() {
+        lastTimingResult = nil
+    }
+
+    private func finalizeTimingIfNeeded() {
+        guard phase == .navigating,
+              let started = navigationStartedAt,
+              plannedCarTravelTime > 0
+        else { return }
+
+        let actual = Date().timeIntervalSince(started)
+        guard actual >= 45 else { return }
+
+        let result = NavTimingResult(
+            distanceMeters: totalRouteDistance,
+            carEstimate: plannedCarTravelTime,
+            motoEstimate: plannedMotoTravelTime > 0 ? plannedMotoTravelTime : plannedCarTravelTime,
+            actual: actual
+        )
+        MotoTravelEstimator.learn(from: result)
+        lastTimingResult = result
+        navigationStartedAt = nil
+        AppLogger.navigation.notice(
+            "Nav timing actual=\(Int(actual))s car=\(Int(result.carEstimate))s moto=\(Int(result.motoEstimate))s savedVsCar=\(Int(result.savedVersusCar))s"
+        )
+    }
+
+    private func checkArrival(from coordinate: CLLocationCoordinate2D) {
+        guard let destinationCoordinate else {
+            arrivalCandidateSince = nil
+            return
+        }
+
+        let here = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
+        let toDestination = here.distance(
+            from: CLLocation(
+                latitude: destinationCoordinate.latitude,
+                longitude: destinationCoordinate.longitude
+            )
+        )
+        let nearDestination = toDestination <= Self.arrivalThresholdMeters
+        let nearRouteEnd = distanceRemaining <= Self.arrivalRemainingMaxMeters
+        // Last maneuver is a strong arrival signal even if remaining polyline is noisy.
+        let onFinalStep = !steps.isEmpty && currentStepIndex >= steps.count - 1
+
+        if nearDestination, nearRouteEnd || onFinalStep {
+            if arrivalCandidateSince == nil {
+                arrivalCandidateSince = Date()
+                AppLogger.navigation.debug(
+                    "Arrival candidate dest=\(Int(toDestination))m remaining=\(Int(self.distanceRemaining))m"
+                )
+            }
+            if let since = arrivalCandidateSince,
+               Date().timeIntervalSince(since) >= Self.arrivalDwell {
+                completeArrival()
+            }
+        } else {
+            arrivalCandidateSince = nil
+        }
+    }
+
+    private func completeArrival() {
+        guard phase == .navigating else { return }
+        arrivalCandidateSince = nil
+        AppLogger.navigation.notice("Arrived at destination — ending navigation")
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        // Finalize timing before clear so the banner can show; then announce arrival.
+        finalizeTimingIfNeeded()
+        clear(stopVoice: false)
+        voice.speak("You have arrived")
     }
 
     private func computeRoute(isRecalculation: Bool, requestAlternates: Bool = false) {
@@ -522,6 +640,8 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
         request.destination = MapKitPlace.mapItem(coordinate: destinationCoordinate)
         request.transportType = .automobile
         request.requestsAlternateRoutes = requestAlternates && !isRecalculation
+        // Near-term departure asks MapKit for a traffic-aware automobile ETA.
+        request.departureDate = Date()
 
         MKDirections(request: request).calculate { response, error in
             if let error {
@@ -550,10 +670,15 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
                             endCoordinate: end
                         )
                     }
+                    let estimate = MotoTravelEstimator.estimate(
+                        distanceMeters: route.distance,
+                        carTravelTime: route.expectedTravelTime
+                    )
                     self.applyRoute(
                         coordinates: coordinates,
                         distance: route.distance,
-                        travelTime: route.expectedTravelTime,
+                        carTravelTime: estimate.carTravelTime,
+                        motoTravelTime: estimate.motoTravelTime,
                         steps: navSteps,
                         isRecalculation: isRecalculation
                     )
@@ -588,11 +713,17 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
                 let end = stepCoords.last ?? step.polyline.coordinate
                 return NavStep(instruction: instruction, distance: step.distance, endCoordinate: end)
             }
+            let estimate = MotoTravelEstimator.estimate(
+                distanceMeters: route.distance,
+                carTravelTime: route.expectedTravelTime
+            )
             return NavRouteOption(
                 id: UUID(),
                 coordinates: coords,
                 distanceMeters: route.distance,
-                expectedTravelTime: route.expectedTravelTime,
+                expectedTravelTime: estimate.carTravelTime,
+                motoTravelTime: estimate.motoTravelTime,
+                trafficDelay: estimate.trafficDelay,
                 steps: navSteps
             )
         }
@@ -604,10 +735,12 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
     private func applyPreviewSelection(_ option: NavRouteOption) {
         routeCoordinates = option.coordinates
         totalRouteDistance = option.distanceMeters
-        totalTravelTime = option.expectedTravelTime
+        totalTravelTime = option.motoTravelTime
+        plannedCarTravelTime = option.expectedTravelTime
+        plannedMotoTravelTime = option.motoTravelTime
         distanceRemaining = option.distanceMeters
-        eta = option.expectedTravelTime > 0
-            ? Date().addingTimeInterval(option.expectedTravelTime)
+        eta = option.motoTravelTime > 0
+            ? Date().addingTimeInterval(option.motoTravelTime)
             : nil
         steps = []
         currentStepIndex = 0
@@ -617,15 +750,18 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
     private func applyRoute(
         coordinates: [CLLocationCoordinate2D],
         distance: CLLocationDistance,
-        travelTime: TimeInterval,
+        carTravelTime: TimeInterval,
+        motoTravelTime: TimeInterval,
         steps: [NavStep],
         isRecalculation: Bool
     ) {
         routeCoordinates = coordinates
         totalRouteDistance = distance
-        totalTravelTime = travelTime
+        totalTravelTime = motoTravelTime
+        plannedCarTravelTime = carTravelTime
+        plannedMotoTravelTime = motoTravelTime
         distanceRemaining = distance
-        eta = travelTime > 0 ? Date().addingTimeInterval(travelTime) : nil
+        eta = motoTravelTime > 0 ? Date().addingTimeInterval(motoTravelTime) : nil
         self.steps = steps
         currentStepIndex = 0
         distanceToNextManeuver = steps.first?.distance ?? distance
@@ -639,9 +775,9 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
             lastRecalculateAt = Date()
         }
         AppLogger.navigation.notice(
-            "Route \(isRecalculation ? "recalculated" : "computed"): \(Int(distance))m, \(steps.count) steps"
+            "Route \(isRecalculation ? "recalculated" : "computed"): \(Int(distance))m, \(steps.count) steps, car=\(Int(carTravelTime))s moto=\(Int(motoTravelTime))s"
         )
-        onRouteApplied?(coordinates, travelTime)
+        onRouteApplied?(coordinates, motoTravelTime)
     }
 
     private func recomputeRemaining(from coordinate: CLLocationCoordinate2D) {
