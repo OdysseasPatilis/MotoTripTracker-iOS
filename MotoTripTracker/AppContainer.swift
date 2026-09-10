@@ -53,10 +53,11 @@ final class AppContainer {
             self.speedLimitService.refresh(for: location)
             self.navigationService.updateOrigin(location.coordinate)
             let session = self.tripManager.sessionState
-            if session.isActive, !session.isPaused {
+            let isRiding = session.isActive && !session.isPaused
+            if isRiding {
                 self.fuelService.updateConsumedDistance(tripDistanceKm: session.stats.distanceKm)
-                self.trafficCameraService.refresh(for: location)
             }
+            self.trafficCameraService.refresh(for: location, alertsEnabled: isRiding)
             if self.navigationService.hasRoute {
                 self.routeWeatherService.refreshAhead(
                     progressFraction: self.navigationService.routeProgressFraction
@@ -99,7 +100,7 @@ final class AppContainer {
         locationService.startRideUpdating()
         if let location = locationService.lastLocation {
             speedLimitService.refresh(for: location)
-            trafficCameraService.refresh(for: location)
+            trafficCameraService.refresh(for: location, alertsEnabled: true)
             navigationService.updateOrigin(location.coordinate)
         }
         RideLiveActivityController.shared.start()
@@ -121,9 +122,8 @@ final class AppContainer {
         if let location = locationService.lastLocation {
             speedLimitService.refresh(for: location)
             navigationService.updateOrigin(location.coordinate)
-            if !tripManager.sessionState.isPaused {
-                trafficCameraService.refresh(for: location)
-            }
+            let alertsEnabled = !tripManager.sessionState.isPaused
+            trafficCameraService.refresh(for: location, alertsEnabled: alertsEnabled)
         }
         pushLiveActivityUpdate(force: true)
     }
@@ -148,7 +148,7 @@ final class AppContainer {
         locationService.startRideUpdating()
         if let location = locationService.lastLocation {
             speedLimitService.refresh(for: location)
-            trafficCameraService.refresh(for: location)
+            trafficCameraService.refresh(for: location, alertsEnabled: true)
         }
         pushLiveActivityUpdate(force: true)
     }
@@ -162,6 +162,9 @@ final class AppContainer {
         syncKeepScreenAwake()
         // Drop background GPS intent; keep foreground updates for the dashboard map.
         locationService.startUpdating()
+        if let location = locationService.lastLocation {
+            trafficCameraService.refresh(for: location, alertsEnabled: false)
+        }
         RideLiveActivityController.shared.end()
         RideWidgetSnapshotPublisher.publish(from: repository)
         return saved

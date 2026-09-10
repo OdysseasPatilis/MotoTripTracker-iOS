@@ -38,13 +38,11 @@ struct LiveRideMapView: View {
             if let destination {
                 destinationAnnotation(coordinate: destination, color: colors.neonBlue)
             }
-            if isRiding {
-                cameraAnnotations(
-                    cameras: app.trafficCameraService.nearbyCameras,
-                    speedColor: colors.routeAmber,
-                    redLightColor: colors.neonBlue
-                )
-            }
+            cameraAnnotations(
+                cameras: app.trafficCameraService.nearbyCameras,
+                speedColor: colors.routeAmber,
+                redLightColor: colors.neonBlue
+            )
         }
         // Realistic elevation is expensive on first load; keep it for active rides only.
         .mapStyle(

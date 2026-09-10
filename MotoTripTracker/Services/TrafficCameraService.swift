@@ -29,6 +29,7 @@ final class TrafficCameraService {
     private var alertClearTask: Task<Void, Never>?
     private var statusClearTask: Task<Void, Never>?
     private var downloadingCountry: String?
+    private var alertsEnabled = false
 
     private let nearbyRadiusMeters: CLLocationDistance = 3_000
     private let overpassRadiusMeters = 2_500
@@ -64,10 +65,15 @@ final class TrafficCameraService {
         )
     }
 
-    func refresh(for location: CLLocation) {
+    func refresh(for location: CLLocation, alertsEnabled: Bool = true) {
+        self.alertsEnabled = alertsEnabled
         publishNearby(at: location)
-        evaluateAlert(at: location)
-        ensureCountryPack(for: location)
+        if alertsEnabled {
+            evaluateAlert(at: location)
+        } else if activeAlert != nil {
+            activeAlert = nil
+        }
+        ensureCountryPack(for: location, alertsEnabled: alertsEnabled)
 
         guard shouldFetch(for: location) else { return }
         inFlightTask?.cancel()
@@ -125,16 +131,16 @@ final class TrafficCameraService {
 
     // MARK: - Country packs
 
-    private func ensureCountryPack(for location: CLLocation) {
+    private func ensureCountryPack(for location: CLLocation, alertsEnabled: Bool) {
         // Avoid canceling an in-flight download on every GPS tick.
         guard packTask == nil else { return }
         packTask = Task { [weak self] in
-            await self?.ensureCountryPackAsync(for: location)
+            await self?.ensureCountryPackAsync(for: location, alertsEnabled: alertsEnabled)
             self?.packTask = nil
         }
     }
 
-    private func ensureCountryPackAsync(for location: CLLocation) async {
+    private func ensureCountryPackAsync(for location: CLLocation, alertsEnabled: Bool) async {
         guard let country = await countryResolver.resolve(location: location) else { return }
         guard !Task.isCancelled else { return }
 
@@ -146,7 +152,9 @@ final class TrafficCameraService {
             packStore.touch(countryCode: country)
             downloadedPacksByCountry[country] = loaded.pack
             publishNearby(at: location)
-            evaluateAlert(at: location)
+            if alertsEnabled {
+                evaluateAlert(at: location)
+            }
             if packStore.isFresh(countryCode: country) {
                 return
             }
@@ -172,7 +180,9 @@ final class TrafficCameraService {
             downloadingCountry = nil
             downloadStatus = .idle
             publishNearby(at: location)
-            evaluateAlert(at: location)
+            if alertsEnabled {
+                evaluateAlert(at: location)
+            }
             AppLogger.trafficCamera.notice(
                 "Downloaded camera pack \(country, privacy: .public) count=\(pack.cameras.count)"
             )
@@ -314,7 +324,9 @@ final class TrafficCameraService {
         }
         pruneAndPersistCache()
         publishNearby(at: location)
-        evaluateAlert(at: location)
+        if alertsEnabled {
+            evaluateAlert(at: location)
+        }
         AppLogger.trafficCamera.info("Overpass cameras +\(cameras.count) live=\(self.liveByID.count)")
     }
 
