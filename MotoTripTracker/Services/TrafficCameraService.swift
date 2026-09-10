@@ -10,21 +10,28 @@ final class TrafficCameraService {
     private(set) var nearbyCameras: [TrafficCamera] = []
     private(set) var activeAlert: TrafficCameraAlert?
     private(set) var isFetching = false
+    private(set) var downloadStatus: TrafficCameraPackDownloadStatus = .idle
 
     private let regionPacks: [TrafficCameraRegionPack]
     private let session: URLSession
+    private let packStore: TrafficCameraPackStore
+    private let countryResolver: TrafficCameraCountryResolver
     private let voice = NavigationVoicePrompt()
     private var cacheByID: [String: CachedEntry] = [:]
     private var liveByID: [String: TrafficCamera] = [:]
+    private var downloadedPacksByCountry: [String: TrafficCameraRegionPack] = [:]
     private var announcedIDs: Set<String> = []
     private var lastFetchLocation: CLLocation?
     private var lastFetchTime: Date?
     private var preferredEndpointIndex = 0
     private var inFlightTask: Task<Void, Never>?
+    private var packTask: Task<Void, Never>?
     private var alertClearTask: Task<Void, Never>?
+    private var statusClearTask: Task<Void, Never>?
+    private var downloadingCountry: String?
 
-    private let nearbyRadiusMeters: CLLocationDistance = 1_500
-    private let overpassRadiusMeters = 1_200
+    private let nearbyRadiusMeters: CLLocationDistance = 3_000
+    private let overpassRadiusMeters = 2_500
     private let minFetchInterval: TimeInterval = 45
     private let minFetchDistanceMeters: CLLocationDistance = 400
     private let clearApproachExtraMeters: CLLocationDistance = 80
@@ -42,19 +49,25 @@ final class TrafficCameraService {
 
     init(
         session: URLSession = .shared,
-        regionPacks: [TrafficCameraRegionPack] = TrafficCameraRegionPackStore.bundled
+        regionPacks: [TrafficCameraRegionPack] = TrafficCameraRegionPackStore.bundled,
+        packStore: TrafficCameraPackStore = TrafficCameraPackStore(),
+        countryResolver: TrafficCameraCountryResolver? = nil
     ) {
         self.session = session
         self.regionPacks = regionPacks
+        self.packStore = packStore
+        self.countryResolver = countryResolver ?? TrafficCameraCountryResolver()
         cacheByID = Self.loadCache(key: cacheDefaultsKey)
+        downloadedPacksByCountry = packStore.loadAllPacks()
         AppLogger.trafficCamera.info(
-            "TrafficCameraService ready packs=\(regionPacks.count) cache=\(self.cacheByID.count)"
+            "TrafficCameraService ready packs=\(regionPacks.count) downloaded=\(self.downloadedPacksByCountry.count) cache=\(self.cacheByID.count)"
         )
     }
 
     func refresh(for location: CLLocation) {
         publishNearby(at: location)
         evaluateAlert(at: location)
+        ensureCountryPack(for: location)
 
         guard shouldFetch(for: location) else { return }
         inFlightTask?.cancel()
@@ -66,8 +79,14 @@ final class TrafficCameraService {
     func reset() {
         inFlightTask?.cancel()
         inFlightTask = nil
+        packTask?.cancel()
+        packTask = nil
         alertClearTask?.cancel()
         alertClearTask = nil
+        statusClearTask?.cancel()
+        statusClearTask = nil
+        downloadingCountry = nil
+        downloadStatus = .idle
         activeAlert = nil
         announcedIDs.removeAll()
         nearbyCameras = []
@@ -80,6 +99,11 @@ final class TrafficCameraService {
     private func allKnownCameras() -> [TrafficCamera] {
         var byID: [String: TrafficCamera] = [:]
         for pack in regionPacks {
+            for camera in pack.cameras {
+                byID[camera.id] = camera
+            }
+        }
+        for pack in downloadedPacksByCountry.values {
             for camera in pack.cameras {
                 byID[camera.id] = camera
             }
@@ -97,6 +121,85 @@ final class TrafficCameraService {
         nearbyCameras = allKnownCameras()
             .filter { location.distance(from: $0.location) <= nearbyRadiusMeters }
             .sorted { location.distance(from: $0.location) < location.distance(from: $1.location) }
+    }
+
+    // MARK: - Country packs
+
+    private func ensureCountryPack(for location: CLLocation) {
+        // Avoid canceling an in-flight download on every GPS tick.
+        guard packTask == nil else { return }
+        packTask = Task { [weak self] in
+            await self?.ensureCountryPackAsync(for: location)
+            self?.packTask = nil
+        }
+    }
+
+    private func ensureCountryPackAsync(for location: CLLocation) async {
+        guard let country = await countryResolver.resolve(location: location) else { return }
+        guard !Task.isCancelled else { return }
+
+        if packStore.isUnsupported(countryCode: country) {
+            return
+        }
+
+        if let loaded = packStore.loadPack(countryCode: country) {
+            packStore.touch(countryCode: country)
+            downloadedPacksByCountry[country] = loaded.pack
+            publishNearby(at: location)
+            evaluateAlert(at: location)
+            if packStore.isFresh(countryCode: country) {
+                return
+            }
+        }
+
+        if downloadingCountry == country { return }
+        downloadingCountry = country
+        let localeName = Locale.current.localizedString(forRegionCode: country)
+        downloadStatus = .downloading(countryCode: country, countryName: localeName)
+
+        do {
+            let pack = try await TrafficCameraPackDownloader.download(
+                countryCode: country,
+                session: session
+            )
+            guard !Task.isCancelled else {
+                downloadingCountry = nil
+                if case .downloading = downloadStatus { downloadStatus = .idle }
+                return
+            }
+            try packStore.save(pack: pack, countryCode: country, downloadedAt: Date())
+            downloadedPacksByCountry[country] = pack
+            downloadingCountry = nil
+            downloadStatus = .idle
+            publishNearby(at: location)
+            evaluateAlert(at: location)
+            AppLogger.trafficCamera.notice(
+                "Downloaded camera pack \(country, privacy: .public) count=\(pack.cameras.count)"
+            )
+        } catch TrafficCameraPackDownloadError.unsupportedCountry {
+            packStore.markUnsupported(countryCode: country)
+            downloadingCountry = nil
+            showTransientFailure("Camera pack unavailable — using live data")
+            AppLogger.trafficCamera.info("No camera pack for \(country, privacy: .public)")
+        } catch {
+            downloadingCountry = nil
+            showTransientFailure("Camera pack unavailable — using live data")
+            AppLogger.trafficCamera.warning(
+                "Camera pack download failed \(country, privacy: .public): \(error.localizedDescription, privacy: .public)"
+            )
+        }
+    }
+
+    private func showTransientFailure(_ message: String) {
+        downloadStatus = .failed(message: message)
+        statusClearTask?.cancel()
+        statusClearTask = Task {
+            try? await Task.sleep(for: .seconds(4))
+            guard !Task.isCancelled else { return }
+            if case .failed = downloadStatus {
+                downloadStatus = .idle
+            }
+        }
     }
 
     private func evaluateAlert(at location: CLLocation) {
@@ -177,12 +280,18 @@ final class TrafficCameraService {
         let query = """
         [out:json][timeout:15];
         (
-          node(around:\(overpassRadiusMeters),\(lat),\(lon))["highway"="speed_camera"];
-          way(around:\(overpassRadiusMeters),\(lat),\(lon))["highway"="speed_camera"];
-          node(around:\(overpassRadiusMeters),\(lat),\(lon))["enforcement"="maxspeed"];
-          way(around:\(overpassRadiusMeters),\(lat),\(lon))["enforcement"="maxspeed"];
-          node(around:\(overpassRadiusMeters),\(lat),\(lon))["enforcement"="traffic_signals"];
-          way(around:\(overpassRadiusMeters),\(lat),\(lon))["enforcement"="traffic_signals"];
+          nwr(around:\(overpassRadiusMeters),\(lat),\(lon))["highway"="speed_camera"];
+          nwr(around:\(overpassRadiusMeters),\(lat),\(lon))["device"="speed_camera"];
+          nwr(around:\(overpassRadiusMeters),\(lat),\(lon))["enforcement"="maxspeed"];
+          nwr(around:\(overpassRadiusMeters),\(lat),\(lon))["enforcement"="speed"];
+          nwr(around:\(overpassRadiusMeters),\(lat),\(lon))["enforcement"="traffic_signals"];
+          nwr(around:\(overpassRadiusMeters),\(lat),\(lon))["camera:type"="speed"];
+          nwr(around:\(overpassRadiusMeters),\(lat),\(lon))["camera:type"="speed_camera"];
+          nwr(around:\(overpassRadiusMeters),\(lat),\(lon))["camera:type"="red_light"];
+          nwr(around:\(overpassRadiusMeters),\(lat),\(lon))["camera:type"="traffic_signals"];
+          relation(around:\(overpassRadiusMeters),\(lat),\(lon))["type"="enforcement"]["enforcement"="maxspeed"];
+          relation(around:\(overpassRadiusMeters),\(lat),\(lon))["type"="enforcement"]["enforcement"="traffic_signals"];
+          relation(around:\(overpassRadiusMeters),\(lat),\(lon))["type"="enforcement"]["enforcement"="speed"];
         );
         out center tags;
         """

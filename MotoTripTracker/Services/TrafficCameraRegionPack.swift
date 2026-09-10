@@ -24,7 +24,7 @@ nonisolated struct TrafficCameraRegionPack: Sendable {
 
 nonisolated enum TrafficCameraRegionPackStore {
     static let bundled: [TrafficCameraRegionPack] = {
-        ["athens_traffic_cameras"].compactMap { loadBundled(named: $0) }
+        ["greece_traffic_cameras", "athens_traffic_cameras"].compactMap { loadBundled(named: $0) }
     }()
 
     static func loadBundled(named resource: String, bundle: Bundle? = nil) -> TrafficCameraRegionPack? {
@@ -57,8 +57,14 @@ nonisolated enum TrafficCameraRegionPackStore {
         if let url = Bundle.main.url(forResource: resource, withExtension: ext) {
             return url
         }
+        if let url = Bundle.main.url(forResource: resource, withExtension: ext, subdirectory: "Resources") {
+            return url
+        }
         for bundle in Bundle.allBundles {
             if let url = bundle.url(forResource: resource, withExtension: ext) {
+                return url
+            }
+            if let url = bundle.url(forResource: resource, withExtension: ext, subdirectory: "Resources") {
                 return url
             }
         }
@@ -91,25 +97,38 @@ nonisolated enum TrafficCameraRegionPackStore {
         )
     }
 
+    static func encode(_ pack: TrafficCameraRegionPack) throws -> Data {
+        let dto = DTO(
+            id: pack.id,
+            name: pack.name,
+            version: pack.version,
+            bbox: DTO.BBox(south: pack.south, west: pack.west, north: pack.north, east: pack.east),
+            cameras: pack.cameras.map {
+                DTO.CameraDTO(id: $0.id, lat: $0.latitude, lon: $0.longitude, kind: $0.kind)
+            }
+        )
+        return try JSONEncoder().encode(dto)
+    }
+
     static func isInsideBundledRegion(_ location: CLLocation, packs: [TrafficCameraRegionPack] = bundled) -> Bool {
         packs.contains { $0.contains(location) }
     }
 
-    private struct DTO: Decodable {
+    private struct DTO: Codable {
         let id: String
         let name: String
         let version: Int
         let bbox: BBox
         let cameras: [CameraDTO]
 
-        struct BBox: Decodable {
+        struct BBox: Codable {
             let south: Double
             let west: Double
             let north: Double
             let east: Double
         }
 
-        struct CameraDTO: Decodable {
+        struct CameraDTO: Codable {
             let id: String
             let lat: Double
             let lon: Double

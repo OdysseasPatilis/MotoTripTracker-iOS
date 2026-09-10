@@ -6,6 +6,12 @@ enum TrafficCameraKind: String, Codable, Sendable, Hashable {
     case redLight
 }
 
+enum TrafficCameraPackDownloadStatus: Equatable, Sendable {
+    case idle
+    case downloading(countryCode: String, countryName: String?)
+    case failed(message: String)
+}
+
 struct TrafficCamera: Identifiable, Hashable, Codable, Sendable {
     let id: String
     let latitude: Double
@@ -94,11 +100,35 @@ nonisolated enum TrafficCameraLogic {
     }
 
     static func kind(fromOSMTags tags: [String: String]) -> TrafficCameraKind? {
-        if tags["highway"] == "speed_camera" { return .speed }
-        switch tags["enforcement"] {
-        case "maxspeed": return .speed
-        case "traffic_signals": return .redLight
-        default: return nil
+        // Prefer explicit red-light signals when multiple tags are present.
+        switch tags["camera:type"]?.lowercased() {
+        case "red_light", "traffic_signals", "signal":
+            return .redLight
+        case "speed", "speed_camera", "alpr", "plate":
+            return .speed
+        default:
+            break
         }
+
+        switch tags["enforcement"]?.lowercased() {
+        case "traffic_signals":
+            return .redLight
+        case "maxspeed", "speed", "speeding":
+            return .speed
+        default:
+            break
+        }
+
+        if tags["highway"] == "speed_camera" { return .speed }
+        if tags["device"]?.lowercased() == "speed_camera" { return .speed }
+        // Relation centers from type=enforcement queries.
+        if tags["type"] == "enforcement" {
+            switch tags["enforcement"]?.lowercased() {
+            case "traffic_signals": return .redLight
+            case "maxspeed", "speed", "speeding": return .speed
+            default: break
+            }
+        }
+        return nil
     }
 }

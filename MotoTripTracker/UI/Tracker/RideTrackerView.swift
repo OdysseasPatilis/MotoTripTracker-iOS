@@ -71,6 +71,28 @@ struct RideTrackerView: View {
                                 trafficCameraBanner(alert, colors: colors)
                                     .padding(.horizontal, 10)
                             }
+                            switch app.trafficCameraService.downloadStatus {
+                            case .idle:
+                                EmptyView()
+                            case let .downloading(code, name):
+                                Text("Downloading cameras for \(name ?? code)…")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(colors.textPrimary)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                    .padding(.horizontal, 10)
+                            case let .failed(message):
+                                Text(message)
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(colors.textPrimary)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                    .padding(.horizontal, 10)
+                            }
                         }
                         .padding(.top, 4)
                     }
