@@ -4,15 +4,18 @@ import SwiftUI
 
 /// Live, videogame-style map for the ride dashboard.
 ///
-/// While a ride is active the camera follows the rider with a 3D pitch and a
-/// speed-reactive zoom (it pulls back as you go faster). When idle it settles
-/// into a gentler top-down follow to conserve battery. Draws the traveled trail,
-/// the planned navigation route, and a destination pin.
+/// While following the rider, the camera tracks GPS (3D + speed zoom when riding,
+/// gentler top-down when idle). Panning or zooming pauses follow; a Recenter
+/// button restores it. Draws the traveled trail, planned navigation route,
+/// traffic cameras, and a destination pin.
 struct LiveRideMapView: View {
     @Environment(AppContainer.self) private var app
     @Environment(ThemeStore.self) private var theme
 
     @State private var cameraPosition: MapCameraPosition = .userLocation(fallback: .automatic)
+    @State private var isFollowingUser = true
+    /// Counts programmatic camera moves so `onMapCameraChange` does not treat them as user pans.
+    @State private var programmaticCameraTokens = 0
 
     private var isRiding: Bool {
         let session = app.tripManager.sessionState
@@ -25,6 +28,7 @@ struct LiveRideMapView: View {
         let traveled = app.tripManager.routeCoordinates
         let destination = navigation.destinationCoordinate
         let previewItems = Self.previewPolylineItems(from: navigation)
+        let showRecenter = !isFollowingUser && navigation.phase != .previewing
 
         Map(position: $cameraPosition) {
             UserAnnotation()
@@ -55,18 +59,57 @@ struct LiveRideMapView: View {
         .mapControls {
             MapCompass()
         }
+        .overlay(alignment: .bottomTrailing) {
+            if showRecenter {
+                Button {
+                    recenterOnUser()
+                } label: {
+                    Image(systemName: "location.fill")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(colors.neonBlue)
+                        .frame(width: 44, height: 44)
+                        .background(.ultraThinMaterial, in: Circle())
+                }
+                .accessibilityLabel("Recenter map on my location")
+                .padding(.trailing, 12)
+                // Sit above the idle search/petrol row (and other bottom map overlays).
+                .padding(.bottom, 100)
+                .transition(.scale.combined(with: .opacity))
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: showRecenter)
+        .onMapCameraChange(frequency: .onEnd) { _ in
+            if programmaticCameraTokens > 0 {
+                programmaticCameraTokens -= 1
+                return
+            }
+            guard app.navigationService.phase != .previewing else { return }
+            if isFollowingUser {
+                isFollowingUser = false
+            }
+        }
         .onAppear {
             if navigation.phase == .previewing {
                 fitPreviewRoute()
-            } else {
+            } else if isFollowingUser {
                 updateCamera(location: app.locationService.lastLocation)
             }
         }
         .onChange(of: app.locationService.updateTick) { _, _ in
+            guard isFollowingUser else { return }
             updateCamera(location: app.locationService.lastLocation)
         }
         .onChange(of: isRiding) { _, _ in
+            guard isFollowingUser else { return }
             updateCamera(location: app.locationService.lastLocation)
+        }
+        .onChange(of: navigation.phase) { oldPhase, newPhase in
+            if newPhase == .previewing {
+                isFollowingUser = false
+            } else if oldPhase == .previewing {
+                isFollowingUser = true
+                updateCamera(location: app.locationService.lastLocation)
+            }
         }
         .onChange(of: navigation.previewRoutes.count) { oldCount, newCount in
             guard oldCount == 0, newCount > 0 else { return }
@@ -162,8 +205,14 @@ struct LiveRideMapView: View {
         }
     }
 
+    private func recenterOnUser() {
+        isFollowingUser = true
+        updateCamera(location: app.locationService.lastLocation)
+    }
+
     private func updateCamera(location: CLLocation?) {
         guard app.navigationService.phase != .previewing else { return }
+        guard isFollowingUser else { return }
         guard let location else { return }
 
         let camera: MapCamera
@@ -187,6 +236,7 @@ struct LiveRideMapView: View {
             )
         }
 
+        programmaticCameraTokens += 1
         withAnimation(.easeInOut(duration: 0.45)) {
             cameraPosition = .camera(camera)
         }
@@ -211,6 +261,8 @@ struct LiveRideMapView: View {
         paddedBounds.size.width += horizontalPadding * 2
         paddedBounds.size.height += topPadding + bottomPadding
 
+        isFollowingUser = false
+        programmaticCameraTokens += 1
         withAnimation(.easeInOut(duration: 0.45)) {
             cameraPosition = .rect(paddedBounds)
         }
