@@ -8,6 +8,8 @@ import os
 @MainActor
 final class TrafficCameraService {
     private(set) var nearbyCameras: [TrafficCamera] = []
+    /// Cameras inside the live map viewport (updated as the user pans/zooms).
+    private(set) var mapCameras: [TrafficCamera] = []
     private(set) var activeAlert: TrafficCameraAlert?
     private(set) var isFetching = false
     private(set) var downloadStatus: TrafficCameraPackDownloadStatus = .idle
@@ -30,6 +32,7 @@ final class TrafficCameraService {
     private var statusClearTask: Task<Void, Never>?
     private var downloadingCountry: String?
     private var alertsEnabled = false
+    private var lastVisibleMap: VisibleMapRegion?
 
     private let nearbyRadiusMeters: CLLocationDistance = 3_000
     private let overpassRadiusMeters = 2_500
@@ -39,6 +42,7 @@ final class TrafficCameraService {
     private let alertBannerSeconds: TimeInterval = 6
     private let cacheTTL: TimeInterval = 30 * 24 * 60 * 60
     private let maxCacheEntries = 2_000
+    private let maxMapCameras = 250
     private let cacheDefaultsKey = "moto_traffic_camera_cache_v1"
 
     private static let endpoints = [
@@ -68,6 +72,7 @@ final class TrafficCameraService {
     func refresh(for location: CLLocation, alertsEnabled: Bool = true) {
         self.alertsEnabled = alertsEnabled
         publishNearby(at: location)
+        republishMapCamerasIfNeeded()
         if alertsEnabled {
             evaluateAlert(at: location)
         } else if activeAlert != nil {
@@ -79,6 +84,35 @@ final class TrafficCameraService {
         inFlightTask?.cancel()
         inFlightTask = Task {
             await fetchOverpass(around: location)
+        }
+    }
+
+    /// Updates map icons for the visible viewport. When `fetchRemote` is true (user exploring),
+    /// also pulls Overpass / country packs around the map center.
+    func updateVisibleMapRegion(
+        centerLatitude: Double,
+        centerLongitude: Double,
+        latitudeDelta: Double,
+        longitudeDelta: Double,
+        fetchRemote: Bool
+    ) {
+        let region = VisibleMapRegion(
+            centerLatitude: centerLatitude,
+            centerLongitude: centerLongitude,
+            latitudeDelta: latitudeDelta,
+            longitudeDelta: longitudeDelta
+        )
+        lastVisibleMap = region
+        publishMapCameras(in: region)
+
+        guard fetchRemote else { return }
+        let center = CLLocation(latitude: centerLatitude, longitude: centerLongitude)
+        ensureCountryPack(for: center, alertsEnabled: false)
+
+        guard shouldFetch(for: center) else { return }
+        inFlightTask?.cancel()
+        inFlightTask = Task {
+            await fetchOverpass(around: center)
         }
     }
 
@@ -96,6 +130,7 @@ final class TrafficCameraService {
         activeAlert = nil
         announcedIDs.removeAll()
         nearbyCameras = []
+        mapCameras = []
         // Keep pack + disk cache + last live results for the next ride.
         AppLogger.trafficCamera.notice("Traffic camera alerts reset")
     }
@@ -129,6 +164,23 @@ final class TrafficCameraService {
             .sorted { location.distance(from: $0.location) < location.distance(from: $1.location) }
     }
 
+    private func publishMapCameras(in region: VisibleMapRegion) {
+        mapCameras = TrafficCameraLogic.cameras(
+            from: allKnownCameras(),
+            in: region,
+            limit: maxMapCameras
+        )
+    }
+
+    private func republishMapCamerasIfNeeded() {
+        guard let lastVisibleMap else {
+            // Before the first map camera callback, mirror GPS-nearby icons.
+            mapCameras = nearbyCameras
+            return
+        }
+        publishMapCameras(in: lastVisibleMap)
+    }
+
     // MARK: - Country packs
 
     private func ensureCountryPack(for location: CLLocation, alertsEnabled: Bool) {
@@ -152,6 +204,7 @@ final class TrafficCameraService {
             packStore.touch(countryCode: country)
             downloadedPacksByCountry[country] = loaded.pack
             publishNearby(at: location)
+            republishMapCamerasIfNeeded()
             if alertsEnabled {
                 evaluateAlert(at: location)
             }
@@ -180,6 +233,7 @@ final class TrafficCameraService {
             downloadingCountry = nil
             downloadStatus = .idle
             publishNearby(at: location)
+            republishMapCamerasIfNeeded()
             if alertsEnabled {
                 evaluateAlert(at: location)
             }
@@ -324,6 +378,7 @@ final class TrafficCameraService {
         }
         pruneAndPersistCache()
         publishNearby(at: location)
+        republishMapCamerasIfNeeded()
         if alertsEnabled {
             evaluateAlert(at: location)
         }

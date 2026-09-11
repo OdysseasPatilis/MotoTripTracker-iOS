@@ -43,7 +43,7 @@ struct LiveRideMapView: View {
                 destinationAnnotation(coordinate: destination, color: colors.neonBlue)
             }
             cameraAnnotations(
-                cameras: app.trafficCameraService.nearbyCameras,
+                cameras: app.trafficCameraService.mapCameras,
                 speedColor: colors.routeAmber,
                 redLightColor: colors.neonBlue
             )
@@ -78,15 +78,29 @@ struct LiveRideMapView: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: showRecenter)
-        .onMapCameraChange(frequency: .onEnd) { _ in
-            if programmaticCameraTokens > 0 {
+        .onMapCameraChange(frequency: .onEnd) { context in
+            let wasProgrammatic = programmaticCameraTokens > 0
+            if wasProgrammatic {
                 programmaticCameraTokens -= 1
-                return
             }
-            guard app.navigationService.phase != .previewing else { return }
-            if isFollowingUser {
+
+            var following = isFollowingUser
+            if !wasProgrammatic,
+               app.navigationService.phase != .previewing,
+               following {
+                following = false
                 isFollowingUser = false
             }
+
+            let region = context.region
+            let exploring = !following && app.navigationService.phase != .previewing
+            app.trafficCameraService.updateVisibleMapRegion(
+                centerLatitude: region.center.latitude,
+                centerLongitude: region.center.longitude,
+                latitudeDelta: region.span.latitudeDelta,
+                longitudeDelta: region.span.longitudeDelta,
+                fetchRemote: exploring
+            )
         }
         .onAppear {
             if navigation.phase == .previewing {

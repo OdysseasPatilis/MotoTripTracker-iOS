@@ -51,6 +51,14 @@ struct TrafficCameraAlert: Equatable, Sendable {
     }
 }
 
+/// Visible map viewport used to choose which cameras to draw while exploring.
+struct VisibleMapRegion: Equatable, Sendable {
+    var centerLatitude: Double
+    var centerLongitude: Double
+    var latitudeDelta: Double
+    var longitudeDelta: Double
+}
+
 /// Pure helpers for warn distance, heading filter, and OSM tag mapping.
 nonisolated enum TrafficCameraLogic {
     static let minWarnMeters: CLLocationDistance = 250
@@ -130,5 +138,27 @@ nonisolated enum TrafficCameraLogic {
             }
         }
         return nil
+    }
+
+    /// Cameras inside a map viewport (with a small pad). When over `limit`, keep closest to center.
+    static func cameras(
+        from cameras: [TrafficCamera],
+        in region: VisibleMapRegion,
+        limit: Int
+    ) -> [TrafficCamera] {
+        let halfLat = max(region.latitudeDelta, 0.002) / 2 * 1.15
+        let halfLon = max(region.longitudeDelta, 0.002) / 2 * 1.15
+        let centerLat = region.centerLatitude
+        let centerLon = region.centerLongitude
+        var matched = cameras.filter { camera in
+            abs(camera.latitude - centerLat) <= halfLat
+                && abs(camera.longitude - centerLon) <= halfLon
+        }
+        guard matched.count > limit else { return matched }
+        let center = CLLocation(latitude: centerLat, longitude: centerLon)
+        matched.sort {
+            center.distance(from: $0.location) < center.distance(from: $1.location)
+        }
+        return Array(matched.prefix(limit))
     }
 }

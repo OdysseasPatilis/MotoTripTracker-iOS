@@ -777,4 +777,24 @@ struct MotoTripTrackerTests {
             )
         )
     }
+
+    @Test func trafficCameraVisibleRegionFiltersAndLimits() {
+        let cameras = [
+            TrafficCamera(id: "a", latitude: 37.97, longitude: 23.73, kind: .speed),
+            TrafficCamera(id: "b", latitude: 37.98, longitude: 23.74, kind: .redLight),
+            TrafficCamera(id: "c", latitude: 40.0, longitude: 23.0, kind: .speed)
+        ]
+        let region = VisibleMapRegion(
+            centerLatitude: 37.975,
+            centerLongitude: 23.735,
+            latitudeDelta: 0.05,
+            longitudeDelta: 0.05
+        )
+        let visible = TrafficCameraLogic.cameras(from: cameras, in: region, limit: 10)
+        #expect(Set(visible.map(\.id)) == Set(["a", "b"]))
+
+        let limited = TrafficCameraLogic.cameras(from: cameras, in: region, limit: 1)
+        #expect(limited.count == 1)
+        #expect(limited[0].id == "a")
+    }
 }
