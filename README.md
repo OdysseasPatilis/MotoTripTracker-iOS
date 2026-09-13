@@ -45,6 +45,7 @@ The app is the iOS counterpart of the Android **MotoTripTracker** project, with 
 - **Auto-arrives** within ~45 m of the destination (with a short dwell) and ends guidance, speaks “You have arrived”, then shows the timing banner
 - **Compact turn HUD**: next-maneuver card at the **top** of the map (distance + one-line instruction); thin bottom chip for remaining distance / moto ETA, optional “Cars +N min” hint, weather, voice mute, Apple Maps, and clear — so the map stays visible while navigating
 - **Spoken turns** (`AVSpeechSynthesizer`): announces approach (~250 m) and on step advance; mute from the bottom chip; uses an English voice (MapKit instructions are English). Light haptic still fires on advance
+- **Riding camera:** While recording with follow on, the map centers ahead of you (more road ahead) and zooms in for upcoming turns using a speed-scaled window; the top turn banner uses larger type and a 2-line instruction
 - **Off-route recalculation** when you stray ~80 m from the planned polyline (cooldown to avoid spam)
 - **Distance remaining** and **ETA** update as you move
 - **Map places:** Tap a shop or landmark on the dashboard map to open a Go card; **Go** starts the same route preview as destination search
