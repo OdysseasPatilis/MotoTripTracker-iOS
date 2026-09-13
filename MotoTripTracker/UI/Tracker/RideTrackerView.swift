@@ -403,46 +403,47 @@ struct RideTrackerView: View {
     private func topTurnBanner(colors: AppPalette) -> some View {
         let nav = app.navigationService
         let accent = (nav.isOffRoute || nav.isRecalculating) ? colors.routeAmber : colors.neonBlue
-        return HStack(spacing: 12) {
+        return HStack(spacing: 14) {
             Image(systemName: maneuverSymbol(for: nav))
-                .font(.title2.weight(.bold))
+                .font(.title.weight(.bold))
                 .foregroundStyle(colors.bgDeep)
-                .frame(width: 44, height: 44)
-                .background(accent, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .frame(width: 56, height: 56)
+                .background(accent, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 4) {
                 if nav.isRecalculating {
                     Text("Recalculating…")
-                        .font(.subheadline.weight(.semibold))
+                        .font(.title3.weight(.semibold))
                         .foregroundStyle(colors.textPrimary)
                 } else if nav.isOffRoute {
                     Text("Off route")
-                        .font(.subheadline.weight(.semibold))
+                        .font(.title3.weight(.semibold))
                         .foregroundStyle(colors.textPrimary)
                 } else if let step = nav.currentStep {
                     Text(NavigationService.formatDistance(nav.distanceToNextManeuver))
-                        .font(.title3.weight(.bold))
+                        .font(.title.weight(.bold))
                         .foregroundStyle(colors.textPrimary)
                     Text(step.instruction)
-                        .font(.caption)
+                        .font(.subheadline.weight(.semibold))
                         .foregroundStyle(colors.textSecondary)
-                        .lineLimit(1)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
                 } else if nav.isRouting {
                     Text("Calculating route…")
-                        .font(.subheadline.weight(.semibold))
+                        .font(.title3.weight(.semibold))
                         .foregroundStyle(colors.textPrimary)
                 } else {
                     Text(nav.destinationName ?? "Destination")
-                        .font(.subheadline.weight(.semibold))
+                        .font(.title3.weight(.semibold))
                         .foregroundStyle(colors.textPrimary)
-                        .lineLimit(1)
+                        .lineLimit(2)
                 }
             }
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     private func timingResultBanner(_ text: String, colors: AppPalette) -> some View {
