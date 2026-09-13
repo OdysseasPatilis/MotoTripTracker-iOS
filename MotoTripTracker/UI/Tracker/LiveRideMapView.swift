@@ -5,8 +5,9 @@ import os
 
 /// Live, videogame-style map for the ride dashboard.
 ///
-/// While following the rider, the camera tracks GPS (3D + speed zoom when riding,
-/// gentler top-down when idle). Panning or zooming pauses follow; a Recenter
+/// While following the rider, the camera tracks GPS (3D + speed zoom, look-ahead
+/// center, and turn-approach zoom when riding; gentler top-down when idle).
+/// Panning or zooming pauses follow; a Recenter
 /// button restores it. Tapping a map point of interest shows a Go card that
 /// starts the existing route-preview flow. Draws the traveled trail, planned
 /// navigation route, traffic cameras, and a destination pin.
@@ -452,11 +453,23 @@ struct LiveRideMapView: View {
         let camera: MapCamera
         if isRiding {
             let speedKmh = max(location.speed, 0) * 3.6
-            // Pull the camera back as speed increases for a racing-game feel.
-            let distance = 350.0 + min(speedKmh, 180) * 7.0
+            let navigation = app.navigationService
+            let isNavigating = navigation.isNavigating
             let heading = location.course >= 0 ? location.course : 0
+            let center = RideFollowCameraPolicy.centerCoordinate(
+                rider: location.coordinate,
+                courseDegrees: location.course,
+                speedKmh: speedKmh,
+                isNavigating: isNavigating
+            )
+            let distance = RideFollowCameraPolicy.cameraDistanceMeters(
+                speedKmh: speedKmh,
+                distanceToNextManeuver: isNavigating ? navigation.distanceToNextManeuver : nil,
+                isNavigating: isNavigating,
+                isRecalculating: navigation.isRecalculating
+            )
             camera = MapCamera(
-                centerCoordinate: location.coordinate,
+                centerCoordinate: center,
                 distance: distance,
                 heading: heading,
                 pitch: 55
