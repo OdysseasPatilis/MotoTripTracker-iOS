@@ -18,7 +18,7 @@ final class TrafficCameraService {
     private let session: URLSession
     private let packStore: TrafficCameraPackStore
     private let countryResolver: TrafficCameraCountryResolver
-    private let voice = NavigationVoicePrompt()
+    private let voice: NavigationVoicePrompt
     private var cacheByID: [String: CachedEntry] = [:]
     private var liveByID: [String: TrafficCamera] = [:]
     private var downloadedPacksByCountry: [String: TrafficCameraRegionPack] = [:]
@@ -56,12 +56,14 @@ final class TrafficCameraService {
         session: URLSession = .shared,
         regionPacks: [TrafficCameraRegionPack] = TrafficCameraRegionPackStore.bundled,
         packStore: TrafficCameraPackStore = TrafficCameraPackStore(),
-        countryResolver: TrafficCameraCountryResolver? = nil
+        countryResolver: TrafficCameraCountryResolver? = nil,
+        voice: NavigationVoicePrompt? = nil
     ) {
         self.session = session
         self.regionPacks = regionPacks
         self.packStore = packStore
         self.countryResolver = countryResolver ?? TrafficCameraCountryResolver()
+        self.voice = voice ?? NavigationVoicePrompt()
         cacheByID = Self.loadCache(key: cacheDefaultsKey)
         downloadedPacksByCountry = packStore.loadAllPacks()
         AppLogger.trafficCamera.info(

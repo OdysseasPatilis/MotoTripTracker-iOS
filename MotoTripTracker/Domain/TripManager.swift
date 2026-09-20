@@ -82,6 +82,7 @@ final class TripManager {
         stats.movingTime = movingTimeMs / 1000
         stats.stoppedTime = stoppedTimeMs / 1000
         sessionState = RideSessionState(stats: stats, isActive: true, isPaused: true)
+        repository.flushPendingRoutePoints()
         AppLogger.trip.notice("Trip paused \(AppLogger.tripSummary(stats), privacy: .public)")
     }
 
