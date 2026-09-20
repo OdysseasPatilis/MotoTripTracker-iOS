@@ -27,14 +27,15 @@ final class AppContainer {
         self.modelContainer = container
 
         let repository = TripRepository(modelContext: container.mainContext)
+        let voice = NavigationVoicePrompt()
         let speedLimitService = SpeedLimitService()
-        let trafficCameraService = TrafficCameraService()
+        let trafficCameraService = TrafficCameraService(voice: voice)
         self.repository = repository
         self.tripManager = TripManager(repository: repository)
         self.locationService = LocationService()
         self.speedLimitService = speedLimitService
         self.trafficCameraService = trafficCameraService
-        self.navigationService = NavigationService()
+        self.navigationService = NavigationService(voice: voice)
         self.fuelService = FuelService()
         self.petrolPreferences = PetrolPreferences()
         self.routeWeatherService = RouteWeatherService()
