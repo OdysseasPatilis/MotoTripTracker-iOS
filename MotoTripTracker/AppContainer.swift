@@ -132,6 +132,7 @@ final class AppContainer {
     func prepareForBackgroundDuringRide() {
         guard tripManager.sessionState.isActive, !tripManager.sessionState.isPaused else { return }
         locationService.reinforceRideUpdating()
+        repository.flushPendingRoutePoints()
     }
 
     func pauseRide() {

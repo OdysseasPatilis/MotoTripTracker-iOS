@@ -5,6 +5,7 @@ import os
 @MainActor
 final class TripRepository {
     private let modelContext: ModelContext
+    private var saveGate = RoutePointSaveGate()
 
     init(modelContext: ModelContext) {
         self.modelContext = modelContext
@@ -13,6 +14,7 @@ final class TripRepository {
 
     @discardableResult
     func startNewTrip(startTime: TimeInterval) -> UUID {
+        saveGate.reset()
         let trip = Trip(startTime: startTime)
         modelContext.insert(trip)
         do {
@@ -50,14 +52,19 @@ final class TripRepository {
 
         applyRunningStats(runningStats, to: trip)
 
-        do {
-            try modelContext.save()
-        } catch {
-            AppLogger.persistence.error("Failed to persist route point: \(error.localizedDescription, privacy: .public)")
+        if saveGate.recordPoint(at: time) {
+            saveContext(action: "route point batch")
         }
     }
 
+    /// Writes any GPS points still sitting in the context (pause / background).
+    func flushPendingRoutePoints() {
+        guard saveGate.consumeFlush() else { return }
+        saveContext(action: "route point flush")
+    }
+
     func saveTrip(tripID: UUID, finalStats: TripStats, endTime: TimeInterval) {
+        saveGate.reset()
         guard let trip = fetchTrip(id: tripID) else {
             AppLogger.persistence.error("Finalize skipped — trip not found id=\(AppLogger.uuidShort(tripID), privacy: .public)")
             return
@@ -158,6 +165,7 @@ final class TripRepository {
     }
 
     func deleteTrip(id: UUID) {
+        saveGate.reset()
         guard let trip = fetchTrip(id: id) else {
             AppLogger.persistence.warning("Delete skipped — trip not found id=\(AppLogger.uuidShort(id), privacy: .public)")
             return
