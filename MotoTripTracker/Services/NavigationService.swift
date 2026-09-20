@@ -4,65 +4,19 @@ import MapKit
 import UIKit
 import os
 
-/// A single turn-by-turn maneuver extracted from `MKRoute.Step`.
-struct NavStep: Sendable, Identifiable, Hashable {
-    let id: UUID
-    let instruction: String
-    let distance: CLLocationDistance
-    let endLatitude: Double
-    let endLongitude: Double
-
-    var endCoordinate: CLLocationCoordinate2D {
-        CLLocationCoordinate2D(latitude: endLatitude, longitude: endLongitude)
-    }
-
-    init(instruction: String, distance: CLLocationDistance, endCoordinate: CLLocationCoordinate2D) {
-        self.id = UUID()
-        self.instruction = instruction
-        self.distance = distance
-        self.endLatitude = endCoordinate.latitude
-        self.endLongitude = endCoordinate.longitude
-    }
-}
-
-enum NavigationPhase: String, Equatable, Sendable {
-    case idle
-    case previewing
-    case navigating
-}
-
-struct NavRouteOption: Identifiable, Equatable, Sendable {
-    let id: UUID
-    let coordinates: [CLLocationCoordinate2D]
-    let distanceMeters: Double
-    /// MapKit automobile ETA (typically traffic-aware).
-    let expectedTravelTime: TimeInterval
-    /// Motorcycle-adjusted ETA (filters part of car traffic delay).
-    let motoTravelTime: TimeInterval
-    let trafficDelay: TimeInterval
-    let steps: [NavStep]
-
-    static func == (lhs: NavRouteOption, rhs: NavRouteOption) -> Bool {
-        lhs.id == rhs.id
-    }
-}
-
-/// Destination search, driving routes, and in-app turn-by-turn guidance.
+/// Driving routes and in-app turn-by-turn guidance.
+/// Destination autocomplete lives in `DestinationSearchCompleter`.
 @Observable
 @MainActor
-final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
-    var searchQuery: String = "" {
-        didSet {
-            guard searchQuery != oldValue else { return }
-            if searchQuery.isEmpty {
-                searchResults = []
-            } else {
-                completer.queryFragment = searchQuery
-            }
-        }
+final class NavigationService {
+    let destinationSearch = DestinationSearchCompleter()
+
+    var searchQuery: String {
+        get { destinationSearch.searchQuery }
+        set { destinationSearch.searchQuery = newValue }
     }
 
-    private(set) var searchResults: [MKLocalSearchCompletion] = []
+    var searchResults: [MKLocalSearchCompletion] { destinationSearch.searchResults }
 
     private(set) var destinationCoordinate: CLLocationCoordinate2D?
     private(set) var destinationName: String?
@@ -93,9 +47,8 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
         }
     }
 
-    private let completer = MKLocalSearchCompleter()
-    private let voice = NavigationVoicePrompt()
-    private var origin: CLLocationCoordinate2D?
+    private let voice: NavigationVoicePrompt
+    private(set) var origin: CLLocationCoordinate2D?
     private var totalRouteDistance: CLLocationDistance = 0
     /// Active guidance uses moto-adjusted remaining time scaling.
     private var totalTravelTime: TimeInterval = 0
@@ -128,11 +81,9 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
 
     private var arrivalCandidateSince: Date?
 
-    override init() {
-        super.init()
-        isVoiceEnabled = voice.isEnabled
-        completer.delegate = self
-        completer.resultTypes = [.address, .pointOfInterest]
+    init(voice: NavigationVoicePrompt? = nil) {
+        self.voice = voice ?? NavigationVoicePrompt()
+        isVoiceEnabled = self.voice.isEnabled
     }
 
     func toggleVoice() {
@@ -141,10 +92,7 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
 
     /// Starts MapKit's local-search daemon so the first destination sheet isn't cold.
     func warmUpSearchCompleter() {
-        guard searchQuery.isEmpty else { return }
-        completer.queryFragment = " "
-        completer.queryFragment = ""
-        searchResults = []
+        destinationSearch.warmUp()
     }
 
     var hasDestination: Bool { destinationCoordinate != nil }
@@ -195,11 +143,7 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
     /// turn-by-turn step progress, off-route recalculation, and auto-arrival.
     func updateOrigin(_ coordinate: CLLocationCoordinate2D) {
         origin = coordinate
-        completer.region = MKCoordinateRegion(
-            center: coordinate,
-            latitudinalMeters: 60_000,
-            longitudinalMeters: 60_000
-        )
+        destinationSearch.updateRegion(center: coordinate)
         if phase == .previewing,
            previewRoutes.isEmpty,
            !isRouting,
@@ -215,23 +159,8 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
     }
 
     func selectCompletion(_ completion: MKLocalSearchCompletion) {
-        let request = MKLocalSearch.Request(completion: completion)
-        let fallbackName = completion.title
-        MKLocalSearch(request: request).start { response, error in
-            if let error {
-                AppLogger.navigation.error("Local search failed: \(error.localizedDescription, privacy: .public)")
-                return
-            }
-            guard let item = response?.mapItems.first else { return }
-            let coordinate = MapKitPlace.coordinate(of: item)
-            let name = item.name ?? fallbackName
-            Task { @MainActor in
-                self.beginPreview(
-                    coordinate: coordinate,
-                    name: name,
-                    subtitle: completion.subtitle
-                )
-            }
+        destinationSearch.resolveCompletion(completion) { coordinate, name, subtitle in
+            self.beginPreview(coordinate: coordinate, name: name, subtitle: subtitle)
         }
     }
 
@@ -249,8 +178,7 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
         )
         destinationCoordinate = coordinate
         destinationName = name
-        searchResults = []
-        searchQuery = ""
+        destinationSearch.reset()
         previewErrorMessage = nil
         previewRoutes = []
         selectedRouteID = nil
@@ -296,211 +224,6 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
         clear()
     }
 
-    enum PetrolSearchOutcome: Sendable {
-        case found
-        case noneNearby
-        case allClosed
-    }
-
-    private static let overpassEndpoints = [
-        "https://lz4.overpass-api.de/api/interpreter",
-        "https://z.overpass-api.de/api/interpreter",
-        "https://overpass.kumi.systems/api/interpreter",
-        "https://overpass-api.de/api/interpreter"
-    ]
-
-    /// Search nearby fuel stations, preferring ones that are open now (OSM `opening_hours`
-    /// via Overpass). MapKit does not expose business hours, so closed Apple Maps POIs
-    /// alone cannot be filtered — OSM is the source of truth for hours.
-    func navigateToNearestPetrol(completion: ((PetrolSearchOutcome) -> Void)? = nil) {
-        guard let origin else {
-            completion?(.noneNearby)
-            return
-        }
-        Task {
-            let outcome = await self.findOpenPetrolStation(near: origin)
-            completion?(outcome)
-        }
-    }
-
-    private struct PetrolCandidate {
-        let name: String
-        let coordinate: CLLocationCoordinate2D
-        let distance: CLLocationDistance
-        let status: OpeningHoursEvaluator.Status
-    }
-
-    private func findOpenPetrolStation(near origin: CLLocationCoordinate2D) async -> PetrolSearchOutcome {
-        let here = CLLocation(latitude: origin.latitude, longitude: origin.longitude)
-        let osmStations = await fetchOSMFuelStations(near: origin, radiusMeters: 15_000)
-
-        if !osmStations.isEmpty {
-            let candidates: [PetrolCandidate] = osmStations.map { station in
-                let distance = here.distance(
-                    from: CLLocation(latitude: station.coordinate.latitude, longitude: station.coordinate.longitude)
-                )
-                return PetrolCandidate(
-                    name: station.name,
-                    coordinate: station.coordinate,
-                    distance: distance,
-                    status: OpeningHoursEvaluator.status(of: station.openingHours)
-                )
-            }.sorted { $0.distance < $1.distance }
-
-            let open = candidates.filter { $0.status == .open }
-            let unknown = candidates.filter { $0.status == .unknown }
-            let closed = candidates.filter { $0.status == .closed }
-
-            if let best = open.first {
-                AppLogger.navigation.notice(
-                    "Petrol (open): \(best.name, privacy: .public) \(Int(best.distance))m"
-                )
-                setDestination(coordinate: best.coordinate, name: best.name)
-                return .found
-            }
-
-            // No confirmed-open station — use nearest with unknown hours rather than a closed one.
-            if let best = unknown.first {
-                AppLogger.navigation.notice(
-                    "Petrol (hours unknown): \(best.name, privacy: .public) \(Int(best.distance))m — skipped \(closed.count) closed"
-                )
-                setDestination(coordinate: best.coordinate, name: best.name)
-                return .found
-            }
-
-            if !closed.isEmpty {
-                AppLogger.navigation.notice("All \(closed.count) nearby OSM petrol stations appear closed")
-                return .allClosed
-            }
-        }
-
-        // Overpass empty/failed — MapKit fallback (cannot verify hours).
-        AppLogger.navigation.info("Petrol Overpass empty — falling back to MapKit POI search")
-        return await findPetrolViaMapKit(near: origin)
-    }
-
-    private struct OSMFuelStation {
-        let name: String
-        let coordinate: CLLocationCoordinate2D
-        let openingHours: String?
-    }
-
-    private func fetchOSMFuelStations(
-        near origin: CLLocationCoordinate2D,
-        radiusMeters: Int
-    ) async -> [OSMFuelStation] {
-        let query = """
-        [out:json][timeout:20];
-        (
-          node["amenity"="fuel"](around:\(radiusMeters),\(origin.latitude),\(origin.longitude));
-          way["amenity"="fuel"](around:\(radiusMeters),\(origin.latitude),\(origin.longitude));
-        );
-        out center tags;
-        """
-
-        guard let body = "data=\(query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query)"
-            .data(using: .utf8) else { return [] }
-
-        for endpoint in Self.overpassEndpoints {
-            guard let url = URL(string: endpoint) else { continue }
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
-            request.httpBody = body
-            request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-            request.timeoutInterval = 20
-
-            do {
-                let (data, response) = try await URLSession.shared.data(for: request)
-                if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
-                    AppLogger.navigation.warning("Petrol Overpass HTTP \(http.statusCode) from \(endpoint)")
-                    continue
-                }
-                return parseOSMFuelStations(from: data)
-            } catch {
-                AppLogger.navigation.warning(
-                    "Petrol Overpass \(endpoint) failed: \(error.localizedDescription, privacy: .public)"
-                )
-            }
-        }
-        return []
-    }
-
-    private func parseOSMFuelStations(from data: Data) -> [OSMFuelStation] {
-        struct OverpassResponse: Decodable {
-            struct Element: Decodable {
-                struct Center: Decodable {
-                    let lat: Double
-                    let lon: Double
-                }
-                let type: String
-                let lat: Double?
-                let lon: Double?
-                let center: Center?
-                let tags: [String: String]?
-            }
-            let elements: [Element]
-        }
-
-        guard let decoded = try? JSONDecoder().decode(OverpassResponse.self, from: data) else {
-            AppLogger.navigation.warning("Petrol Overpass JSON decode failed")
-            return []
-        }
-
-        return decoded.elements.compactMap { element in
-            let lat = element.lat ?? element.center?.lat
-            let lon = element.lon ?? element.center?.lon
-            guard let lat, let lon else { return nil }
-            let tags = element.tags ?? [:]
-            let brand = tags["brand"]
-            let name = tags["name"] ?? brand ?? "Petrol station"
-            let display: String
-            if let brand, let nameTag = tags["name"], brand != nameTag {
-                display = "\(brand) · \(nameTag)"
-            } else {
-                display = name
-            }
-            return OSMFuelStation(
-                name: display,
-                coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon),
-                openingHours: tags["opening_hours"]
-            )
-        }
-    }
-
-    private func findPetrolViaMapKit(near origin: CLLocationCoordinate2D) async -> PetrolSearchOutcome {
-        let request = MKLocalSearch.Request()
-        request.naturalLanguageQuery = "gas station"
-        request.resultTypes = .pointOfInterest
-        request.region = MKCoordinateRegion(
-            center: origin,
-            latitudinalMeters: 20_000,
-            longitudinalMeters: 20_000
-        )
-
-        do {
-            let response = try await MKLocalSearch(request: request).start()
-            let here = CLLocation(latitude: origin.latitude, longitude: origin.longitude)
-            let best = response.mapItems
-                .map { item -> (MKMapItem, CLLocationDistance) in
-                    let coord = MapKitPlace.coordinate(of: item)
-                    let distance = here.distance(
-                        from: CLLocation(latitude: coord.latitude, longitude: coord.longitude)
-                    )
-                    return (item, distance)
-                }
-                .sorted { $0.1 < $1.1 }
-                .first
-
-            guard let best else { return .noneNearby }
-            let name = best.0.name ?? "Petrol station"
-            setDestination(coordinate: MapKitPlace.coordinate(of: best.0), name: name)
-            return .found
-        } catch {
-            AppLogger.navigation.error("Petrol MapKit search failed: \(error.localizedDescription, privacy: .public)")
-            return .noneNearby
-        }
-    }
-
     func openInAppleMaps() {
         guard let destinationCoordinate else { return }
         let item = MapKitPlace.mapItem(coordinate: destinationCoordinate, name: destinationName)
@@ -535,8 +258,7 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
         isOffRoute = false
         isRecalculating = false
         nearestRouteDistance = 0
-        searchQuery = ""
-        searchResults = []
+        destinationSearch.reset()
         approachedStepID = nil
         announcedStepID = nil
         if stopVoice {
@@ -548,6 +270,10 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
 
     func dismissTimingResult() {
         lastTimingResult = nil
+    }
+
+    static func formatDistance(_ meters: CLLocationDistance) -> String {
+        NavigationRouteMath.formatDistance(meters)
     }
 
     private func finalizeTimingIfNeeded() {
@@ -579,19 +305,15 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
             return
         }
 
-        let here = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
-        let toDestination = here.distance(
-            from: CLLocation(
-                latitude: destinationCoordinate.latitude,
-                longitude: destinationCoordinate.longitude
-            )
-        )
-        let nearDestination = toDestination <= Self.arrivalThresholdMeters
-        let nearRouteEnd = distanceRemaining <= Self.arrivalRemainingMaxMeters
-        // Last maneuver is a strong arrival signal even if remaining polyline is noisy.
-        let onFinalStep = !steps.isEmpty && currentStepIndex >= steps.count - 1
-
-        if nearDestination, nearRouteEnd || onFinalStep {
+        let toDestination = NavigationRouteMath.meters(from: coordinate, to: destinationCoordinate)
+        if NavigationRouteMath.isArrivalCandidate(
+            metersToDestination: toDestination,
+            distanceRemaining: distanceRemaining,
+            currentStepIndex: currentStepIndex,
+            stepCount: steps.count,
+            destinationThresholdMeters: Self.arrivalThresholdMeters,
+            remainingMaxMeters: Self.arrivalRemainingMaxMeters
+        ) {
             if arrivalCandidateSince == nil {
                 arrivalCandidateSince = Date()
                 AppLogger.navigation.debug(
@@ -659,17 +381,7 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
                     self.applyPreviewRoutes(mkRoutes)
                 } else if let route = mkRoutes.first {
                     let coordinates = route.polyline.coordinates
-                    let navSteps: [NavStep] = route.steps.compactMap { step in
-                        let instruction = step.instructions.trimmingCharacters(in: .whitespacesAndNewlines)
-                        guard !instruction.isEmpty else { return nil }
-                        let stepCoords = step.polyline.coordinates
-                        let end = stepCoords.last ?? step.polyline.coordinate
-                        return NavStep(
-                            instruction: instruction,
-                            distance: step.distance,
-                            endCoordinate: end
-                        )
-                    }
+                    let navSteps = Self.navSteps(from: route)
                     let estimate = MotoTravelEstimator.estimate(
                         distanceMeters: route.distance,
                         carTravelTime: route.expectedTravelTime
@@ -705,26 +417,18 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
         }
         previewErrorMessage = nil
         previewRoutes = mkRoutes.map { route in
-            let coords = route.polyline.coordinates
-            let navSteps: [NavStep] = route.steps.compactMap { step in
-                let instruction = step.instructions.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !instruction.isEmpty else { return nil }
-                let stepCoords = step.polyline.coordinates
-                let end = stepCoords.last ?? step.polyline.coordinate
-                return NavStep(instruction: instruction, distance: step.distance, endCoordinate: end)
-            }
             let estimate = MotoTravelEstimator.estimate(
                 distanceMeters: route.distance,
                 carTravelTime: route.expectedTravelTime
             )
             return NavRouteOption(
                 id: UUID(),
-                coordinates: coords,
+                coordinates: route.polyline.coordinates,
                 distanceMeters: route.distance,
                 expectedTravelTime: estimate.carTravelTime,
                 motoTravelTime: estimate.motoTravelTime,
                 trafficDelay: estimate.trafficDelay,
-                steps: navSteps
+                steps: Self.navSteps(from: route)
             )
         }
         let first = previewRoutes[0]
@@ -781,33 +485,11 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
     }
 
     private func recomputeRemaining(from coordinate: CLLocationCoordinate2D) {
-        guard routeCoordinates.count > 1 else { return }
-        let here = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
-
-        var nearestIndex = 0
-        var nearestDistance = Double.greatestFiniteMagnitude
-        for (index, coord) in routeCoordinates.enumerated() {
-            let distance = here.distance(from: CLLocation(latitude: coord.latitude, longitude: coord.longitude))
-            if distance < nearestDistance {
-                nearestDistance = distance
-                nearestIndex = index
-            }
-        }
-        nearestRouteDistance = nearestDistance
-
-        var remaining = nearestDistance
-        if nearestIndex < routeCoordinates.count - 1 {
-            for index in nearestIndex..<(routeCoordinates.count - 1) {
-                let a = routeCoordinates[index]
-                let b = routeCoordinates[index + 1]
-                remaining += CLLocation(latitude: a.latitude, longitude: a.longitude)
-                    .distance(from: CLLocation(latitude: b.latitude, longitude: b.longitude))
-            }
-        }
-
-        distanceRemaining = remaining
+        let progress = NavigationRouteMath.progress(at: coordinate, on: routeCoordinates)
+        nearestRouteDistance = progress.nearestDistance
+        distanceRemaining = progress.remaining
         if totalRouteDistance > 0, totalTravelTime > 0 {
-            let fraction = min(max(remaining / totalRouteDistance, 0), 1)
+            let fraction = min(max(progress.remaining / totalRouteDistance, 0), 1)
             eta = Date().addingTimeInterval(totalTravelTime * fraction)
         }
     }
@@ -818,40 +500,22 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
             return
         }
 
-        let here = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
-        let toEnd = here.distance(
-            from: CLLocation(latitude: step.endCoordinate.latitude, longitude: step.endCoordinate.longitude)
-        )
+        let toEnd = NavigationRouteMath.meters(from: coordinate, to: step.endCoordinate)
         distanceToNextManeuver = toEnd
         maybeAnnounceApproach(for: step, distanceMeters: toEnd)
 
-        // Advance while we're near the maneuver point (and not on the last step).
-        var index = currentStepIndex
-        while index < steps.count {
-            let candidate = steps[index]
-            let distance = here.distance(
-                from: CLLocation(
-                    latitude: candidate.endCoordinate.latitude,
-                    longitude: candidate.endCoordinate.longitude
-                )
-            )
-            if distance <= Self.stepAdvanceMeters, index < steps.count - 1 {
-                index += 1
-                continue
-            }
-            break
-        }
+        let index = NavigationRouteMath.nextStepIndex(
+            from: coordinate,
+            steps: steps,
+            currentIndex: currentStepIndex,
+            advanceMeters: Self.stepAdvanceMeters
+        )
 
         if index != currentStepIndex {
             currentStepIndex = index
             approachedStepID = nil
             if let next = currentStep {
-                distanceToNextManeuver = here.distance(
-                    from: CLLocation(
-                        latitude: next.endCoordinate.latitude,
-                        longitude: next.endCoordinate.longitude
-                    )
-                )
+                distanceToNextManeuver = NavigationRouteMath.meters(from: coordinate, to: next.endCoordinate)
                 AppLogger.navigation.info("Advanced to step \(index + 1)/\(self.steps.count): \(next.instruction, privacy: .public)")
                 announceStep(next)
             }
@@ -890,34 +554,13 @@ final class NavigationService: NSObject, MKLocalSearchCompleterDelegate {
         }
     }
 
-    static func formatDistance(_ meters: CLLocationDistance) -> String {
-        if meters >= 1000 {
-            return String(format: "%.1f km", meters / 1000)
+    private static func navSteps(from route: MKRoute) -> [NavStep] {
+        route.steps.compactMap { step in
+            let instruction = step.instructions.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !instruction.isEmpty else { return nil }
+            let stepCoords = step.polyline.coordinates
+            let end = stepCoords.last ?? step.polyline.coordinate
+            return NavStep(instruction: instruction, distance: step.distance, endCoordinate: end)
         }
-        return "\(max(0, Int(meters.rounded()))) m"
-    }
-
-    // MARK: - MKLocalSearchCompleterDelegate
-
-    nonisolated func completerDidUpdateResults(_ completer: MKLocalSearchCompleter) {
-        MainActor.assumeIsolated {
-            self.searchResults = completer.results
-        }
-    }
-
-    nonisolated func completer(_ completer: MKLocalSearchCompleter, didFailWithError error: Error) {
-        AppLogger.navigation.error("Search completer failed: \(error.localizedDescription, privacy: .public)")
-    }
-}
-
-extension MKPolyline {
-    /// Extracts the polyline's vertices as an array of coordinates.
-    var coordinates: [CLLocationCoordinate2D] {
-        var coords = [CLLocationCoordinate2D](
-            repeating: CLLocationCoordinate2D(),
-            count: pointCount
-        )
-        getCoordinates(&coords, range: NSRange(location: 0, length: pointCount))
-        return coords
     }
 }
