@@ -143,9 +143,19 @@ struct LiveRideMapView: View {
             guard isFollowingUser else { return }
             updateCamera(location: app.locationService.lastLocation)
         }
-        .onChange(of: isRiding) { _, _ in
-            guard isFollowingUser else { return }
-            updateCamera(location: app.locationService.lastLocation)
+        .onChange(of: isRiding) { _, riding in
+            // Starting/stopping a ride also flips map elevation (.flat ↔ .realistic).
+            // That MapKit camera churn can look like a user pan and clear follow —
+            // especially painful when starting a ride without navigation preview,
+            // which has no other path that re-asserts follow + 3D framing.
+            if riding {
+                isFollowingUser = true
+                programmaticCameraTokens += 1
+                updateCamera(location: app.locationService.lastLocation)
+            } else if isFollowingUser {
+                programmaticCameraTokens += 1
+                updateCamera(location: app.locationService.lastLocation)
+            }
         }
         .onChange(of: navigation.previewRoutes.count) { oldCount, newCount in
             guard oldCount == 0, newCount > 0 else { return }
