@@ -14,7 +14,7 @@ final class TripManager {
     private let speedFilter = SpeedFilter()
     private let stopDetector = StopDetector()
     private let gForceTracker: GForceTracker
-    private let repository: TripRepository
+    private let repository: any TripPersisting
     private let cornerDetector = CornerDetector()
 
     private var currentTripID: UUID?
@@ -35,7 +35,7 @@ final class TripManager {
     /// Readable from default-parameter evaluation (nonisolated) under MainActor isolation.
     nonisolated static let minSaveDistanceMeters: Double = 50
 
-    init(repository: TripRepository, gForceTracker: GForceTracker? = nil) {
+    init(repository: any TripPersisting, gForceTracker: GForceTracker? = nil) {
         self.repository = repository
         self.gForceTracker = gForceTracker ?? GForceTracker()
     }
