@@ -3,7 +3,7 @@ import SwiftData
 import os
 
 @MainActor
-final class TripRepository {
+final class TripRepository: TripPersisting {
     private let modelContext: ModelContext
     private var saveGate = RoutePointSaveGate()
 
