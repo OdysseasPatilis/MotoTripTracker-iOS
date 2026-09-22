@@ -126,7 +126,8 @@ struct MotoTripTrackerTests {
             TripTimingRecomputer.looksUndercounted(
                 movingSeconds: 0,
                 stoppedSeconds: 0,
-                points: points
+                points: points,
+                minimumGapSeconds: 5
             )
         )
     }
@@ -780,7 +781,7 @@ struct MotoTripTrackerTests {
 
     @Test func trafficCameraVisibleRegionFiltersAndLimits() {
         let cameras = [
-            TrafficCamera(id: "a", latitude: 37.97, longitude: 23.73, kind: .speed),
+            TrafficCamera(id: "a", latitude: 37.974, longitude: 23.734, kind: .speed),
             TrafficCamera(id: "b", latitude: 37.98, longitude: 23.74, kind: .redLight),
             TrafficCamera(id: "c", latitude: 40.0, longitude: 23.0, kind: .speed)
         ]
