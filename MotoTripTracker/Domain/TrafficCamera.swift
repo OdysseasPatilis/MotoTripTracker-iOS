@@ -18,11 +18,11 @@ struct TrafficCamera: Identifiable, Hashable, Codable, Sendable {
     let longitude: Double
     let kind: TrafficCameraKind
 
-    var coordinate: CLLocationCoordinate2D {
+    nonisolated var coordinate: CLLocationCoordinate2D {
         CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
     }
 
-    var location: CLLocation {
+    nonisolated var location: CLLocation {
         CLLocation(latitude: latitude, longitude: longitude)
     }
 
