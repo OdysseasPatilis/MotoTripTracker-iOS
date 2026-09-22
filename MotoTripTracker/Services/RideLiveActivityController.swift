@@ -2,6 +2,9 @@ import ActivityKit
 import Foundation
 import os
 
+/// ActivityKit still ships `Activity` as non-Sendable; updates stay serialized on MainActor.
+extension Activity: @unchecked @retroactive Sendable {}
+
 /// Owns the in-progress ride Live Activity (Lock Screen + Dynamic Island).
 @MainActor
 final class RideLiveActivityController {
@@ -13,7 +16,7 @@ final class RideLiveActivityController {
 
     private init() {}
 
-    func start(startedAt: Date = Date()) {
+    func start(startedAt: Date = Date()) async {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else {
             AppLogger.app.info("Live Activities disabled by user/system — skipping start")
             return
@@ -21,7 +24,7 @@ final class RideLiveActivityController {
 
         // End any stale activities from a previous launch.
         for existing in Activity<RideActivityAttributes>.activities {
-            Task { await existing.end(nil, dismissalPolicy: .immediate) }
+            await existing.end(nil, dismissalPolicy: .immediate)
         }
 
         let attributes = RideActivityAttributes(startedAt: startedAt)
@@ -56,7 +59,7 @@ final class RideLiveActivityController {
         isPaused: Bool,
         navigationSummary: String,
         force: Bool = false
-    ) {
+    ) async {
         guard let activity else { return }
         let now = Date()
         if !force, now.timeIntervalSince(lastUpdate) < minUpdateInterval { return }
@@ -73,26 +76,22 @@ final class RideLiveActivityController {
             navigationSummary: navigationSummary
         )
 
-        Task {
-            await activity.update(.init(state: state, staleDate: nil))
-        }
+        await activity.update(.init(state: state, staleDate: nil))
     }
 
-    func end() {
+    func end() async {
         guard let activity else { return }
         self.activity = nil
-        Task {
-            await activity.end(nil, dismissalPolicy: .immediate)
-            AppLogger.app.notice("Live Activity ended")
-        }
+        await activity.end(nil, dismissalPolicy: .immediate)
+        AppLogger.app.notice("Live Activity ended")
     }
 
     /// End Live Activities left over from a force-quit mid-ride.
-    func endStaleActivitiesIfNeeded() {
+    func endStaleActivitiesIfNeeded() async {
         let stale = Activity<RideActivityAttributes>.activities
         guard !stale.isEmpty else { return }
         for existing in stale {
-            Task { await existing.end(nil, dismissalPolicy: .immediate) }
+            await existing.end(nil, dismissalPolicy: .immediate)
         }
         activity = nil
         AppLogger.app.notice("Ended \(stale.count) stale Live Activities from previous launch")

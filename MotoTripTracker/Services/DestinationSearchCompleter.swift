@@ -2,6 +2,9 @@ import Foundation
 import MapKit
 import os
 
+/// MapKit completions are immutable values but not marked Sendable.
+extension MKLocalSearchCompletion: @unchecked @retroactive Sendable {}
+
 /// Autocomplete for destination search. Resolving a completion still goes through
 /// `NavigationService.beginPreview` so routing stays in one place.
 @Observable
@@ -56,23 +59,23 @@ final class DestinationSearchCompleter: NSObject, MKLocalSearchCompleterDelegate
         let request = MKLocalSearch.Request(completion: completion)
         let fallbackName = completion.title
         let subtitle = completion.subtitle
-        MKLocalSearch(request: request).start { response, error in
-            if let error {
-                AppLogger.navigation.error("Local search failed: \(error.localizedDescription, privacy: .public)")
-                return
-            }
-            guard let item = response?.mapItems.first else { return }
-            let coordinate = MapKitPlace.coordinate(of: item)
-            let name = item.name ?? fallbackName
-            Task { @MainActor in
+        Task {
+            do {
+                let response = try await MKLocalSearch(request: request).start()
+                guard let item = response.mapItems.first else { return }
+                let coordinate = MapKitPlace.coordinate(of: item)
+                let name = item.name ?? fallbackName
                 onResolved(coordinate, name, subtitle)
+            } catch {
+                AppLogger.navigation.error("Local search failed: \(error.localizedDescription, privacy: .public)")
             }
         }
     }
 
     nonisolated func completerDidUpdateResults(_ completer: MKLocalSearchCompleter) {
-        MainActor.assumeIsolated {
-            self.searchResults = completer.results
+        let results = completer.results
+        Task { @MainActor in
+            self.searchResults = results
         }
     }
 

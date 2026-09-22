@@ -186,7 +186,7 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
         // Prefer sync delivery on the main run loop so background wake-ups are not deferred.
         let run = {
             MainActor.assumeIsolated {
-                let status = manager.authorizationStatus
+                let status = self.manager.authorizationStatus
                 AppLogger.location.notice("Authorization changed → \(String(describing: status))")
                 // Do not call requestAlwaysAuthorization() from this delegate — re-entrancy
                 // here (especially after "Allow Once") can terminate the app on launch.

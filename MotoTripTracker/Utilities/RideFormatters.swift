@@ -1,6 +1,6 @@
 import Foundation
 
-enum RideFormatters {
+nonisolated enum RideFormatters {
     static func secondsToTime(_ totalSeconds: Int64) -> String {
         let hours = totalSeconds / 3600
         let minutes = (totalSeconds % 3600) / 60
