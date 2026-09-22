@@ -365,41 +365,42 @@ final class NavigationService {
         // Near-term departure asks MapKit for a traffic-aware automobile ETA.
         request.departureDate = Date()
 
-        MKDirections(request: request).calculate { response, error in
-            if let error {
+        Task {
+            let mkRoutes: [MKRoute]
+            do {
+                mkRoutes = try await MKDirections(request: request).calculate().routes
+            } catch {
                 AppLogger.navigation.error("Directions failed: \(error.localizedDescription, privacy: .public)")
+                mkRoutes = []
             }
-            let mkRoutes = response?.routes ?? []
-            Task { @MainActor in
-                guard self.routeRequestGeneration == requestGeneration else { return }
-                if isRecalculation {
-                    guard self.phase == .navigating else { return }
-                } else {
-                    guard self.phase == .previewing else { return }
-                }
-                if self.phase == .previewing, !isRecalculation {
-                    self.applyPreviewRoutes(mkRoutes)
-                } else if let route = mkRoutes.first {
-                    let coordinates = route.polyline.coordinates
-                    let navSteps = Self.navSteps(from: route)
-                    let estimate = MotoTravelEstimator.estimate(
-                        distanceMeters: route.distance,
-                        carTravelTime: route.expectedTravelTime
-                    )
-                    self.applyRoute(
-                        coordinates: coordinates,
-                        distance: route.distance,
-                        carTravelTime: estimate.carTravelTime,
-                        motoTravelTime: estimate.motoTravelTime,
-                        steps: navSteps,
-                        isRecalculation: isRecalculation
-                    )
-                } else {
-                    self.isRouting = false
-                    self.isRecalculating = false
-                    if self.phase == .previewing {
-                        self.previewErrorMessage = "Couldn't find a driving route."
-                    }
+            guard self.routeRequestGeneration == requestGeneration else { return }
+            if isRecalculation {
+                guard self.phase == .navigating else { return }
+            } else {
+                guard self.phase == .previewing else { return }
+            }
+            if self.phase == .previewing, !isRecalculation {
+                self.applyPreviewRoutes(mkRoutes)
+            } else if let route = mkRoutes.first {
+                let coordinates = route.polyline.coordinates
+                let navSteps = Self.navSteps(from: route)
+                let estimate = MotoTravelEstimator.estimate(
+                    distanceMeters: route.distance,
+                    carTravelTime: route.expectedTravelTime
+                )
+                self.applyRoute(
+                    coordinates: coordinates,
+                    distance: route.distance,
+                    carTravelTime: estimate.carTravelTime,
+                    motoTravelTime: estimate.motoTravelTime,
+                    steps: navSteps,
+                    isRecalculation: isRecalculation
+                )
+            } else {
+                self.isRouting = false
+                self.isRecalculating = false
+                if self.phase == .previewing {
+                    self.previewErrorMessage = "Couldn't find a driving route."
                 }
             }
         }

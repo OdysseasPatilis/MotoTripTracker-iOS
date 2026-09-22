@@ -72,7 +72,7 @@ final class AppContainer {
             repository.recoverOrphanedTrips()
             repository.repairUndercountedTripTimings()
             RideWidgetSnapshotPublisher.publish(from: repository)
-            RideLiveActivityController.shared.endStaleActivitiesIfNeeded()
+            await RideLiveActivityController.shared.endStaleActivitiesIfNeeded()
         }
         AppLogger.app.info("AppContainer ready (SwiftData + services wired)")
     }
@@ -104,7 +104,7 @@ final class AppContainer {
             trafficCameraService.refresh(for: location, alertsEnabled: true)
             navigationService.updateOrigin(location.coordinate)
         }
-        RideLiveActivityController.shared.start()
+        Task { await RideLiveActivityController.shared.start() }
         pushLiveActivityUpdate(force: true)
         if !locationService.hasAlwaysAuthorization {
             AppLogger.app.warning(
@@ -167,7 +167,7 @@ final class AppContainer {
         if let location = locationService.lastLocation {
             trafficCameraService.refresh(for: location, alertsEnabled: false)
         }
-        RideLiveActivityController.shared.end()
+        Task { await RideLiveActivityController.shared.end() }
         RideWidgetSnapshotPublisher.publish(from: repository)
         return saved
     }
@@ -184,14 +184,16 @@ final class AppContainer {
         } else {
             summary = ""
         }
-        RideLiveActivityController.shared.update(
-            speedKmh: session.stats.speed,
-            speedLimitKmh: speedLimitService.effectiveLimitKmh,
-            distanceKm: session.stats.distanceKm,
-            movingTimeSeconds: session.stats.movingTime,
-            isPaused: session.isPaused,
-            navigationSummary: summary,
-            force: force
-        )
+        Task {
+            await RideLiveActivityController.shared.update(
+                speedKmh: session.stats.speed,
+                speedLimitKmh: speedLimitService.effectiveLimitKmh,
+                distanceKm: session.stats.distanceKm,
+                movingTimeSeconds: session.stats.movingTime,
+                isPaused: session.isPaused,
+                navigationSummary: summary,
+                force: force
+            )
+        }
     }
 }
