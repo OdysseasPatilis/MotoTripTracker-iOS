@@ -1,3 +1,4 @@
+import SwiftData
 import SwiftUI
 
 enum RideHistoryTab: String, CaseIterable, Identifiable {
@@ -25,7 +26,7 @@ struct RideHistoryView: View {
     @Environment(AppContainer.self) private var app
     @Environment(ThemeStore.self) private var theme
 
-    @State private var allRides: [Trip] = []
+    @Query(sort: \Trip.startTime, order: .reverse) private var allRides: [Trip]
     @State private var selectedTab: RideHistoryTab = .all
     @State private var searchQuery = ""
     @State private var datePreset: DateFilterPreset = .any
@@ -34,23 +35,22 @@ struct RideHistoryView: View {
     @State private var activeCustomField: CustomDateField?
 
     private var visibleRides: [Trip] {
-        filterRides(allRides)
+        RideHistoryQuery.visibleRides(allRides, filter: currentFilter)
     }
 
     /// Rides grouped by calendar day, newest day first.
     private var rideDaySections: [RideDaySection] {
-        let calendar = Calendar.current
-        let grouped = Dictionary(grouping: visibleRides) { trip in
-            calendar.startOfDay(for: Date(timeIntervalSince1970: trip.startTime))
-        }
-        return grouped.keys.sorted(by: >).map { dayStart in
-            let rides = (grouped[dayStart] ?? []).sorted { $0.startTime > $1.startTime }
-            return RideDaySection(
-                id: dayStart,
-                title: Self.daySectionTitle(for: dayStart, calendar: calendar),
-                rides: rides
-            )
-        }
+        RideHistoryQuery.daySections(from: visibleRides)
+    }
+
+    private var currentFilter: RideHistoryFilter {
+        RideHistoryFilter(
+            tab: selectedTab,
+            searchQuery: searchQuery,
+            datePreset: datePreset,
+            customFrom: customFrom,
+            customTo: customTo
+        )
     }
 
     var body: some View {
@@ -128,7 +128,6 @@ struct RideHistoryView: View {
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                 Button {
                                     app.repository.toggleFavorite(id: ride.id)
-                                    reload()
                                 } label: {
                                     Label(
                                         ride.isFavorite ? "Unfavorite" : "Favorite",
@@ -148,7 +147,6 @@ struct RideHistoryView: View {
         .navigationTitle("History")
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $searchQuery, prompt: "Search rides")
-        .onAppear { reload() }
         .sheet(item: $activeCustomField) { field in
             CustomDatePickerSheet(
                 title: field == .from ? "From date" : "To date",
@@ -194,7 +192,7 @@ struct RideHistoryView: View {
         if preset == .custom {
             let calendar = Calendar.current
             customFrom = calendar.startOfDay(for: Date())
-            customTo = endOfDay(Date())
+            customTo = RideHistoryQuery.endOfDay(Date())
         }
     }
 
@@ -203,65 +201,7 @@ struct RideHistoryView: View {
             swap(&customFrom, &customTo)
         }
         customFrom = Calendar.current.startOfDay(for: customFrom)
-        customTo = endOfDay(customTo)
-    }
-
-    private func endOfDay(_ date: Date) -> Date {
-        let calendar = Calendar.current
-        let start = calendar.startOfDay(for: date)
-        return calendar.date(byAdding: DateComponents(day: 1, second: -1), to: start) ?? date
-    }
-
-    private func reload() {
-        allRides = app.repository.allTrips()
-    }
-
-    private func filterRides(_ rides: [Trip]) -> [Trip] {
-        var scoped = rides
-        if selectedTab == .favorites {
-            scoped = scoped.filter(\.isFavorite)
-        }
-        scoped = scoped.filter { matchesDate($0) }
-
-        let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !query.isEmpty else { return scoped }
-        return scoped.filter {
-            $0.displayTitle.lowercased().contains(query)
-                || RideFormatters.timestampToDate($0.startTime).lowercased().contains(query)
-        }
-    }
-
-    private func matchesDate(_ ride: Trip) -> Bool {
-        let date = Date(timeIntervalSince1970: ride.startTime)
-        let calendar = Calendar.current
-        let now = Date()
-
-        switch datePreset {
-        case .any:
-            return true
-        case .today:
-            return calendar.isDateInToday(date)
-        case .yesterday:
-            return calendar.isDateInYesterday(date)
-        case .thisWeek:
-            return calendar.isDate(date, equalTo: now, toGranularity: .weekOfYear)
-        case .thisMonth:
-            return calendar.isDate(date, equalTo: now, toGranularity: .month)
-        case .custom:
-            let start = calendar.startOfDay(for: min(customFrom, customTo))
-            let end = endOfDay(max(customFrom, customTo))
-            return date >= start && date <= end
-        }
-    }
-
-    private static func daySectionTitle(for dayStart: Date, calendar: Calendar) -> String {
-        if calendar.isDateInToday(dayStart) {
-            return "Today"
-        }
-        if calendar.isDateInYesterday(dayStart) {
-            return "Yesterday"
-        }
-        return daySectionDate.string(from: dayStart)
+        customTo = RideHistoryQuery.endOfDay(customTo)
     }
 
     private static let shortDate: DateFormatter = {
@@ -271,18 +211,6 @@ struct RideHistoryView: View {
         return formatter
     }()
 
-    private static let daySectionDate: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = .current
-        formatter.dateFormat = "dd/MM/yyyy"
-        return formatter
-    }()
-}
-
-private struct RideDaySection: Identifiable {
-    let id: Date
-    let title: String
-    let rides: [Trip]
 }
 
 extension CustomDateField: Identifiable {
@@ -362,4 +290,14 @@ struct RideHistoryRow: View {
         }
         .padding(.vertical, 4)
     }
+}
+
+#Preview {
+    let app = AppContainer(inMemory: true)
+    NavigationStack {
+        RideHistoryView()
+    }
+    .environment(app)
+    .environment(app.theme)
+    .modelContainer(app.modelContainer)
 }

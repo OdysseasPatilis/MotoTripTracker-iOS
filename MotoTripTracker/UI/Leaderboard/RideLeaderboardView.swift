@@ -1,3 +1,4 @@
+import SwiftData
 import SwiftUI
 
 enum LeaderboardCategory: String, CaseIterable, Identifiable {
@@ -86,10 +87,9 @@ enum LeaderboardRanking {
 }
 
 struct RideLeaderboardView: View {
-    @Environment(AppContainer.self) private var app
     @Environment(ThemeStore.self) private var theme
 
-    @State private var trips: [Trip] = []
+    @Query(sort: \Trip.startTime, order: .reverse) private var trips: [Trip]
     @State private var category: LeaderboardCategory = .speed
 
     private var entries: [LeaderboardEntry] {
@@ -143,9 +143,6 @@ struct RideLeaderboardView: View {
         .background(colors.bgDeep.ignoresSafeArea())
         .navigationTitle("Leaderboard")
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear {
-            trips = app.repository.allTrips()
-        }
     }
 }
 
@@ -200,4 +197,13 @@ private struct LeaderboardRow: View {
         default: colors.bgPanel
         }
     }
+}
+
+#Preview {
+    let app = AppContainer(inMemory: true)
+    NavigationStack {
+        RideLeaderboardView()
+    }
+    .environment(app.theme)
+    .modelContainer(app.modelContainer)
 }
