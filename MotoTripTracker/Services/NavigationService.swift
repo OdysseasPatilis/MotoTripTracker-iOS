@@ -20,24 +20,24 @@ final class NavigationService {
 
     private(set) var destinationCoordinate: CLLocationCoordinate2D?
     private(set) var destinationName: String?
-    private(set) var routeCoordinates: [CLLocationCoordinate2D] = []
-    private(set) var distanceRemaining: CLLocationDistance = 0
-    private(set) var eta: Date?
-    private(set) var isRouting = false
-    private(set) var isOffRoute = false
-    private(set) var isRecalculating = false
+    var routeCoordinates: [CLLocationCoordinate2D] = []
+    var distanceRemaining: CLLocationDistance = 0
+    var eta: Date?
+    var isRouting = false
+    var isOffRoute = false
+    var isRecalculating = false
     private(set) var phase: NavigationPhase = .idle
-    private(set) var previewRoutes: [NavRouteOption] = []
-    private(set) var selectedRouteID: UUID?
-    private(set) var previewErrorMessage: String?
+    var previewRoutes: [NavRouteOption] = []
+    var selectedRouteID: UUID?
+    var previewErrorMessage: String?
 
     /// Last completed navigation timing (car vs moto vs actual), for a short HUD banner.
     private(set) var lastTimingResult: NavTimingResult?
 
-    private(set) var steps: [NavStep] = []
-    private(set) var currentStepIndex: Int = 0
+    var steps: [NavStep] = []
+    var currentStepIndex: Int = 0
     /// Distance from the rider to the end of the current maneuver.
-    private(set) var distanceToNextManeuver: CLLocationDistance = 0
+    var distanceToNextManeuver: CLLocationDistance = 0
 
     /// Spoken turn prompts; persisted across launches (default on).
     var isVoiceEnabled: Bool = true {
@@ -47,18 +47,18 @@ final class NavigationService {
         }
     }
 
-    private let voice: NavigationVoicePrompt
+    let voice: NavigationVoicePrompt
     private(set) var origin: CLLocationCoordinate2D?
-    private var totalRouteDistance: CLLocationDistance = 0
+    var totalRouteDistance: CLLocationDistance = 0
     /// Active guidance uses moto-adjusted remaining time scaling.
-    private var totalTravelTime: TimeInterval = 0
-    private var plannedCarTravelTime: TimeInterval = 0
-    private var plannedMotoTravelTime: TimeInterval = 0
+    var totalTravelTime: TimeInterval = 0
+    var plannedCarTravelTime: TimeInterval = 0
+    var plannedMotoTravelTime: TimeInterval = 0
     private var navigationStartedAt: Date?
-    private var lastRecalculateAt: Date = .distantPast
-    private var nearestRouteDistance: CLLocationDistance = 0
-    private var approachedStepID: UUID?
-    private var announcedStepID: UUID?
+    var lastRecalculateAt: Date = .distantPast
+    var nearestRouteDistance: CLLocationDistance = 0
+    var approachedStepID: UUID?
+    var announcedStepID: UUID?
     private var routeRequestGeneration: UInt64 = 0
 
     /// Called when a driving route is applied (initial or recalculated).
@@ -66,12 +66,12 @@ final class NavigationService {
     var onRouteCleared: (() -> Void)?
 
     /// How far from the planned polyline before we treat the rider as off-route.
-    private static let offRouteThresholdMeters: CLLocationDistance = 80
+    static let offRouteThresholdMeters: CLLocationDistance = 80
     /// Advance to the next step when within this distance of its end.
-    private static let stepAdvanceMeters: CLLocationDistance = 35
+    static let stepAdvanceMeters: CLLocationDistance = 35
     /// Speak an approach prompt once when within this distance of the maneuver.
-    private static let approachAnnounceMeters: CLLocationDistance = 250
-    private static let recalculateCooldown: TimeInterval = 12
+    static let approachAnnounceMeters: CLLocationDistance = 250
+    static let recalculateCooldown: TimeInterval = 12
     /// Arrive when within this of the destination pin…
     private static let arrivalThresholdMeters: CLLocationDistance = 45
     /// …and remaining route distance is also small (avoids early finish if you pass the pin).
@@ -340,7 +340,7 @@ final class NavigationService {
         voice.speak("You have arrived")
     }
 
-    private func computeRoute(isRecalculation: Bool, requestAlternates: Bool = false) {
+    func computeRoute(isRecalculation: Bool, requestAlternates: Bool = false) {
         guard let origin else {
             if phase == .previewing, !isRecalculation {
                 previewErrorMessage = "Waiting for your location…"
@@ -403,165 +403,6 @@ final class NavigationService {
                     self.previewErrorMessage = "Couldn't find a driving route."
                 }
             }
-        }
-    }
-
-    private func applyPreviewRoutes(_ mkRoutes: [MKRoute]) {
-        isRouting = false
-        isRecalculating = false
-        guard !mkRoutes.isEmpty else {
-            previewRoutes = []
-            selectedRouteID = nil
-            routeCoordinates = []
-            previewErrorMessage = "Couldn't find a driving route."
-            return
-        }
-        previewErrorMessage = nil
-        previewRoutes = mkRoutes.map { route in
-            let estimate = MotoTravelEstimator.estimate(
-                distanceMeters: route.distance,
-                carTravelTime: route.expectedTravelTime
-            )
-            return NavRouteOption(
-                id: UUID(),
-                coordinates: route.polyline.coordinates,
-                distanceMeters: route.distance,
-                expectedTravelTime: estimate.carTravelTime,
-                motoTravelTime: estimate.motoTravelTime,
-                trafficDelay: estimate.trafficDelay,
-                steps: Self.navSteps(from: route)
-            )
-        }
-        let first = previewRoutes[0]
-        selectedRouteID = first.id
-        applyPreviewSelection(first)
-    }
-
-    private func applyPreviewSelection(_ option: NavRouteOption) {
-        routeCoordinates = option.coordinates
-        totalRouteDistance = option.distanceMeters
-        totalTravelTime = option.motoTravelTime
-        plannedCarTravelTime = option.expectedTravelTime
-        plannedMotoTravelTime = option.motoTravelTime
-        distanceRemaining = option.distanceMeters
-        eta = option.motoTravelTime > 0
-            ? Date().addingTimeInterval(option.motoTravelTime)
-            : nil
-        steps = []
-        currentStepIndex = 0
-        distanceToNextManeuver = 0
-    }
-
-    private func applyRoute(
-        coordinates: [CLLocationCoordinate2D],
-        distance: CLLocationDistance,
-        carTravelTime: TimeInterval,
-        motoTravelTime: TimeInterval,
-        steps: [NavStep],
-        isRecalculation: Bool
-    ) {
-        routeCoordinates = coordinates
-        totalRouteDistance = distance
-        totalTravelTime = motoTravelTime
-        plannedCarTravelTime = carTravelTime
-        plannedMotoTravelTime = motoTravelTime
-        distanceRemaining = distance
-        eta = motoTravelTime > 0 ? Date().addingTimeInterval(motoTravelTime) : nil
-        self.steps = steps
-        currentStepIndex = 0
-        distanceToNextManeuver = steps.first?.distance ?? distance
-        approachedStepID = nil
-        announcedStepID = nil
-        isRouting = false
-        isRecalculating = false
-        isOffRoute = false
-        nearestRouteDistance = 0
-        if isRecalculation {
-            lastRecalculateAt = Date()
-        }
-        AppLogger.navigation.notice(
-            "Route \(isRecalculation ? "recalculated" : "computed"): \(Int(distance))m, \(steps.count) steps, car=\(Int(carTravelTime))s moto=\(Int(motoTravelTime))s"
-        )
-        onRouteApplied?(coordinates, motoTravelTime)
-    }
-
-    private func recomputeRemaining(from coordinate: CLLocationCoordinate2D) {
-        let progress = NavigationRouteMath.progress(at: coordinate, on: routeCoordinates)
-        nearestRouteDistance = progress.nearestDistance
-        distanceRemaining = progress.remaining
-        if totalRouteDistance > 0, totalTravelTime > 0 {
-            let fraction = min(max(progress.remaining / totalRouteDistance, 0), 1)
-            eta = Date().addingTimeInterval(totalTravelTime * fraction)
-        }
-    }
-
-    private func advanceStepIfNeeded(from coordinate: CLLocationCoordinate2D) {
-        guard let step = currentStep else {
-            distanceToNextManeuver = distanceRemaining
-            return
-        }
-
-        let toEnd = NavigationRouteMath.meters(from: coordinate, to: step.endCoordinate)
-        distanceToNextManeuver = toEnd
-        maybeAnnounceApproach(for: step, distanceMeters: toEnd)
-
-        let index = NavigationRouteMath.nextStepIndex(
-            from: coordinate,
-            steps: steps,
-            currentIndex: currentStepIndex,
-            advanceMeters: Self.stepAdvanceMeters
-        )
-
-        if index != currentStepIndex {
-            currentStepIndex = index
-            approachedStepID = nil
-            if let next = currentStep {
-                distanceToNextManeuver = NavigationRouteMath.meters(from: coordinate, to: next.endCoordinate)
-                AppLogger.navigation.info("Advanced to step \(index + 1)/\(self.steps.count): \(next.instruction, privacy: .public)")
-                announceStep(next)
-            }
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        }
-    }
-
-    private func maybeAnnounceApproach(for step: NavStep, distanceMeters: CLLocationDistance) {
-        guard distanceMeters <= Self.approachAnnounceMeters else { return }
-        guard approachedStepID != step.id else { return }
-        approachedStepID = step.id
-        let distance = Self.formatDistance(distanceMeters)
-        voice.speak("In \(distance), \(step.instruction)")
-    }
-
-    private func announceStep(_ step: NavStep) {
-        guard announcedStepID != step.id else { return }
-        announcedStepID = step.id
-        voice.speak(step.instruction)
-    }
-
-    private func checkOffRouteAndRecalculate(from coordinate: CLLocationCoordinate2D) {
-        guard hasDestination, hasRoute, !isRouting, !isRecalculating else { return }
-
-        if nearestRouteDistance > Self.offRouteThresholdMeters {
-            isOffRoute = true
-            let now = Date()
-            guard now.timeIntervalSince(lastRecalculateAt) >= Self.recalculateCooldown else { return }
-            lastRecalculateAt = now
-            AppLogger.navigation.notice(
-                "Off route (\(Int(self.nearestRouteDistance))m) — recalculating"
-            )
-            computeRoute(isRecalculation: true)
-        } else if isOffRoute, nearestRouteDistance <= Self.offRouteThresholdMeters / 2 {
-            isOffRoute = false
-        }
-    }
-
-    private static func navSteps(from route: MKRoute) -> [NavStep] {
-        route.steps.compactMap { step in
-            let instruction = step.instructions.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !instruction.isEmpty else { return nil }
-            let stepCoords = step.polyline.coordinates
-            let end = stepCoords.last ?? step.polyline.coordinate
-            return NavStep(instruction: instruction, distance: step.distance, endCoordinate: end)
         }
     }
 }
