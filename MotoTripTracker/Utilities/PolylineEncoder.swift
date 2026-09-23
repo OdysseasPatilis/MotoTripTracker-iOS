@@ -1,7 +1,7 @@
 import Foundation
 
 /// Google Encoded Polyline Algorithm Format.
-enum PolylineEncoder {
+nonisolated enum PolylineEncoder {
     static func encode(_ coordinates: [(lat: Double, lng: Double)]) -> String {
         var lastLat = 0
         var lastLng = 0

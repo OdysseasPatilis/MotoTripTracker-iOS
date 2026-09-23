@@ -2,7 +2,7 @@ import Foundation
 
 /// Decides when in-memory GPS points should be flushed to SwiftData.
 /// Inserts still happen on every tick; this only throttles `ModelContext.save()`.
-struct RoutePointSaveGate {
+nonisolated struct RoutePointSaveGate {
     static let maxUnsavedPoints = 5
     static let maxUnsavedSeconds: TimeInterval = 4
 
