@@ -1,7 +1,7 @@
 import Foundation
 
 /// Composite twistiness score (0–100) from corner density and lateral G.
-enum TwistinessCalculator {
+nonisolated enum TwistinessCalculator {
     enum Rating: String, Sendable {
         case straight = "Straight"
         case flowing = "Flowing"

@@ -5,25 +5,27 @@ import os
 @MainActor
 final class TripRepository: TripPersisting {
     private let modelContext: ModelContext
-    private var saveGate = RoutePointSaveGate()
+    private let writer: TripWriteActor
+    private var writeChain: Task<Void, Never> = Task {}
 
-    init(modelContext: ModelContext) {
+    init(modelContext: ModelContext, container: ModelContainer) {
         self.modelContext = modelContext
+        self.writer = TripWriteActor(modelContainer: container)
         AppLogger.persistence.debug("TripRepository initialized")
+    }
+
+    func waitForPendingWrites() async {
+        await writeChain.value
     }
 
     @discardableResult
     func startNewTrip(startTime: TimeInterval) -> UUID {
-        saveGate.reset()
-        let trip = Trip(startTime: startTime)
-        modelContext.insert(trip)
-        do {
-            try modelContext.save()
-            AppLogger.persistence.notice("New trip created id=\(AppLogger.uuidShort(trip.id), privacy: .public)")
-        } catch {
-            AppLogger.persistence.error("Failed to save new trip: \(error.localizedDescription, privacy: .public)")
+        let id = UUID()
+        let writer = writer
+        enqueueWrite {
+            await writer.createTrip(id: id, startTime: startTime)
         }
-        return trip.id
+        return id
     }
 
     func addRoutePointAndUpdateStats(
@@ -35,68 +37,33 @@ final class TripRepository: TripPersisting {
         time: TimeInterval,
         runningStats: TripStats
     ) {
-        guard let trip = fetchTrip(id: tripID) else {
-            AppLogger.persistence.error("Route point skipped — trip not found id=\(AppLogger.uuidShort(tripID), privacy: .public)")
-            return
-        }
-
-        let point = RoutePoint(
-            latitude: latitude,
-            longitude: longitude,
-            altitude: altitude,
-            speedMps: speedMps,
-            timestamp: time
-        )
-        point.trip = trip
-        modelContext.insert(point)
-
-        applyRunningStats(runningStats, to: trip)
-
-        if saveGate.recordPoint(at: time) {
-            saveContext(action: "route point batch")
+        let writer = writer
+        enqueueWrite {
+            await writer.addRoutePointAndUpdateStats(
+                tripID: tripID,
+                latitude: latitude,
+                longitude: longitude,
+                altitude: altitude,
+                speedMps: speedMps,
+                time: time,
+                runningStats: runningStats
+            )
         }
     }
 
-    /// Writes any GPS points still sitting in the context (pause / background).
+    /// Writes any GPS points still sitting in the writer (pause / background).
     func flushPendingRoutePoints() {
-        guard saveGate.consumeFlush() else { return }
-        saveContext(action: "route point flush")
+        let writer = writer
+        enqueueWrite {
+            await writer.flushPendingRoutePoints()
+        }
     }
 
     func saveTrip(tripID: UUID, finalStats: TripStats, endTime: TimeInterval) {
-        saveGate.reset()
-        guard let trip = fetchTrip(id: tripID) else {
-            AppLogger.persistence.error("Finalize skipped — trip not found id=\(AppLogger.uuidShort(tripID), privacy: .public)")
-            return
-        }
-
-        trip.endTime = endTime
-        applyRunningStats(finalStats, to: trip)
-
-        let points = routePoints(for: tripID)
-        AppLogger.persistence.notice(
-            "Finalizing trip id=\(AppLogger.uuidShort(tripID), privacy: .public) points=\(points.count) dist=\(finalStats.distanceKm, format: .fixed(precision: 2))km"
-        )
-
-        // Persist the polyline immediately so Summary / share work even if waypoint
-        // geocoding is slow or interrupted (common on long background rides).
-        let coords = points.map { (lat: $0.latitude, lng: $0.longitude) }
-        if !coords.isEmpty {
-            trip.encodedRoutePolyline = PolylineEncoder.encode(coords)
-            AppLogger.persistence.info(
-                "Polyline encoded chars=\(trip.encodedRoutePolyline?.count ?? 0) from \(coords.count) points"
-            )
-        }
-        do {
-            try modelContext.save()
-            AppLogger.persistence.notice("Trip stats+polyline saved id=\(AppLogger.uuidShort(tripID), privacy: .public)")
-            TripCloudUploader.enqueueUpload(trip: trip, points: points)
-        } catch {
-            AppLogger.persistence.error("Failed to save finalized trip: \(error.localizedDescription, privacy: .public)")
-        }
-
-        Task {
-            await ensureWaypointsAnalyzed(tripID: tripID, totalDistanceMeters: finalStats.distanceMeters)
+        let writer = writer
+        enqueueWrite { [weak self] in
+            await writer.saveTrip(tripID: tripID, finalStats: finalStats, endTime: endTime)
+            await self?.finishSavedTrip(tripID: tripID, distanceMeters: finalStats.distanceMeters)
         }
     }
 
@@ -165,17 +132,9 @@ final class TripRepository: TripPersisting {
     }
 
     func deleteTrip(id: UUID) {
-        saveGate.reset()
-        guard let trip = fetchTrip(id: id) else {
-            AppLogger.persistence.warning("Delete skipped — trip not found id=\(AppLogger.uuidShort(id), privacy: .public)")
-            return
-        }
-        modelContext.delete(trip)
-        do {
-            try modelContext.save()
-            AppLogger.persistence.notice("Trip deleted id=\(AppLogger.uuidShort(id), privacy: .public)")
-        } catch {
-            AppLogger.persistence.error("Failed to delete trip: \(error.localizedDescription, privacy: .public)")
+        let writer = writer
+        enqueueWrite {
+            await writer.deleteTrip(id: id)
         }
     }
 
@@ -254,21 +213,18 @@ final class TripRepository: TripPersisting {
         routePoints(for: tripID).filter(\.isWaypoint)
     }
 
-    private func applyRunningStats(_ stats: TripStats, to trip: Trip) {
-        trip.distanceMeters = stats.distanceMeters
-        trip.movingTime = stats.movingTime
-        trip.stoppedTime = stats.stoppedTime
-        trip.maxSpeed = stats.maxSpeed
-        trip.maxGForce = stats.maxGForce
-        trip.elevationGain = stats.totalElevationGain
-        trip.avgSpeed = stats.avgSpeed
-        trip.maxLateralGForce = stats.maxLateralGForce
-        trip.cornerCount = stats.cornerCount
-        trip.twistinessScore = TwistinessCalculator.score(
-            cornerCount: stats.cornerCount,
-            distanceKm: stats.distanceKm,
-            maxLateralGForce: stats.maxLateralGForce
-        )
+    private func enqueueWrite(_ work: @escaping @Sendable () async -> Void) {
+        writeChain = Task { [writeChain] in
+            await writeChain.value
+            await work()
+        }
+    }
+
+    private func finishSavedTrip(tripID: UUID, distanceMeters: Double) async {
+        if let trip = fetchTrip(id: tripID) {
+            TripCloudUploader.enqueueUpload(trip: trip, points: routePoints(for: tripID))
+        }
+        await ensureWaypointsAnalyzed(tripID: tripID, totalDistanceMeters: distanceMeters)
     }
 
     private func saveContext(action: String) {

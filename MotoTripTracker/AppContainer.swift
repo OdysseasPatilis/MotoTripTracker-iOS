@@ -26,7 +26,7 @@ final class AppContainer {
         let container = try! ModelContainer(for: schema, configurations: [configuration])
         self.modelContainer = container
 
-        let repository = TripRepository(modelContext: container.mainContext)
+        let repository = TripRepository(modelContext: container.mainContext, container: container)
         let voice = NavigationVoicePrompt()
         let speedLimitService = SpeedLimitService()
         let trafficCameraService = TrafficCameraService(voice: voice)
@@ -134,6 +134,11 @@ final class AppContainer {
         guard tripManager.sessionState.isActive, !tripManager.sessionState.isPaused else { return }
         locationService.reinforceRideUpdating()
         repository.flushPendingRoutePoints()
+        let backgroundTask = UIApplication.shared.beginBackgroundTask()
+        Task {
+            await repository.waitForPendingWrites()
+            UIApplication.shared.endBackgroundTask(backgroundTask)
+        }
     }
 
     func pauseRide() {
@@ -168,7 +173,10 @@ final class AppContainer {
             trafficCameraService.refresh(for: location, alertsEnabled: false)
         }
         Task { await RideLiveActivityController.shared.end() }
-        RideWidgetSnapshotPublisher.publish(from: repository)
+        Task {
+            await repository.waitForPendingWrites()
+            RideWidgetSnapshotPublisher.publish(from: repository)
+        }
         return saved
     }
 
