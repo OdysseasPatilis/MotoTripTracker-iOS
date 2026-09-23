@@ -1,4 +1,5 @@
 import MapKit
+import SwiftData
 import SwiftUI
 
 /// Destination search sheet. Uses `MKLocalSearchCompleter` (via `NavigationService`)
@@ -124,4 +125,12 @@ struct DestinationSearchView: View {
             }
         }
     }
+}
+
+#Preview {
+    let app = AppContainer(inMemory: true)
+    DestinationSearchView()
+        .environment(app)
+        .environment(app.theme)
+        .modelContainer(app.modelContainer)
 }

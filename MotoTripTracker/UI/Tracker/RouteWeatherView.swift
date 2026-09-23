@@ -1,3 +1,4 @@
+import SwiftData
 import SwiftUI
 
 /// Timeline of weather samples along the planned route.
@@ -87,4 +88,12 @@ struct RouteWeatherView: View {
             }
         }
     }
+}
+
+#Preview {
+    let app = AppContainer(inMemory: true)
+    RouteWeatherView()
+        .environment(app)
+        .environment(app.theme)
+        .modelContainer(app.modelContainer)
 }

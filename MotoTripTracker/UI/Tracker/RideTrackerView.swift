@@ -1,4 +1,5 @@
 import CoreLocation
+import SwiftData
 import SwiftUI
 import UIKit
 
@@ -181,4 +182,14 @@ struct RideTrackerView: View {
             batteryLevel = BatteryReader.currentLevel()
         }
     }
+}
+
+#Preview {
+    let app = AppContainer(inMemory: true)
+    NavigationStack {
+        RideTrackerView()
+    }
+    .environment(app)
+    .environment(app.theme)
+    .modelContainer(app.modelContainer)
 }
