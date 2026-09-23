@@ -1,5 +1,6 @@
 import CoreLocation
 import MapKit
+import SwiftData
 import SwiftUI
 
 struct RideSummaryView: View {
@@ -8,13 +9,30 @@ struct RideSummaryView: View {
     @Environment(\.dismiss) private var dismiss
 
     let tripID: UUID
-    @State private var trip: Trip?
-    @State private var moments: RideMoments = RideMoments(moments: [])
+    @Query private var trips: [Trip]
+    @Query private var storedPoints: [RoutePoint]
     @State private var showDeleteConfirm = false
     @State private var showRename = false
     @State private var renameText = ""
     @State private var mapPosition: MapCameraPosition = .automatic
     @State private var uploadStatus: CloudUploadStatus = .idle
+
+    init(tripID: UUID) {
+        self.tripID = tripID
+        let id = tripID
+        _trips = Query(filter: #Predicate<Trip> { $0.id == id })
+        _storedPoints = Query(
+            filter: #Predicate<RoutePoint> { $0.trip?.id == id },
+            sort: [SortDescriptor(\.timestamp)]
+        )
+    }
+
+    private var trip: Trip? { trips.first }
+
+    private var moments: RideMoments {
+        guard let trip else { return RideMoments(moments: []) }
+        return RideMomentsCalculator.calculate(trip: trip, points: storedPoints)
+    }
 
     private enum CloudUploadStatus: Equatable {
         case idle
@@ -118,7 +136,6 @@ struct RideSummaryView: View {
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button {
                         app.repository.toggleFavorite(id: tripID)
-                        reload()
                     } label: {
                         Image(systemName: trip.isFavorite ? "star.fill" : "star")
                     }
@@ -126,18 +143,17 @@ struct RideSummaryView: View {
 
                     Menu {
                         Button {
-                            let points = app.repository.routePoints(for: trip.id)
-                            RideShareHelper.shareCardImage(trip: trip, moments: moments, points: points)
+                            RideShareHelper.shareCardImage(trip: trip, moments: moments, points: storedPoints)
                         } label: {
                             Label("Share Card", systemImage: "square.and.arrow.up")
                         }
                         Button {
-                            let points = app.repository.routePoints(for: trip.id)
-                            RideShareHelper.shareGPX(trip: trip, points: points)
+                            RideShareHelper.shareGPX(trip: trip, points: storedPoints)
                         } label: {
                             Label("Export GPX", systemImage: "point.topleft.down.to.point.bottomright.curvepath")
                         }
                         Button {
+                            renameText = trip.title ?? ""
                             showRename = true
                         } label: {
                             Label("Rename", systemImage: "pencil")
@@ -155,7 +171,6 @@ struct RideSummaryView: View {
                 }
             }
         }
-        .onAppear { reload() }
         .confirmationDialog("Delete this ride?", isPresented: $showDeleteConfirm, titleVisibility: .visible) {
             Button("Delete", role: .destructive) {
                 app.repository.deleteTrip(id: tripID)
@@ -167,18 +182,8 @@ struct RideSummaryView: View {
             TextField("Title", text: $renameText)
             Button("Save") {
                 app.repository.renameTrip(id: tripID, title: renameText)
-                reload()
             }
             Button("Cancel", role: .cancel) {}
-        }
-    }
-
-    private func reload() {
-        trip = app.repository.fetchTrip(id: tripID)
-        if let trip {
-            let points = app.repository.routePoints(for: tripID)
-            moments = RideMomentsCalculator.calculate(trip: trip, points: points)
-            renameText = trip.title ?? ""
         }
     }
 
@@ -312,14 +317,7 @@ struct RideSummaryView: View {
     }
 
     private func routeCoordinates(for trip: Trip) -> [CLLocationCoordinate2D] {
-        if let encoded = trip.encodedRoutePolyline, !encoded.isEmpty {
-            return PolylineEncoder.decode(encoded).map {
-                CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lng)
-            }
-        }
-        return app.repository.routePoints(for: trip.id).map {
-            CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude)
-        }
+        RideRouteDisplay.resolve(trip: trip, storedPoints: storedPoints).coordinates
     }
 
     private static func region(fitting coordinates: [CLLocationCoordinate2D]) -> MKCoordinateRegion? {
@@ -379,4 +377,14 @@ private struct MomentRow: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(moment.title), \(moment.value), \(moment.detail)")
     }
+}
+
+#Preview {
+    let app = AppContainer(inMemory: true)
+    NavigationStack {
+        RideSummaryView(tripID: UUID())
+    }
+    .environment(app)
+    .environment(app.theme)
+    .modelContainer(app.modelContainer)
 }

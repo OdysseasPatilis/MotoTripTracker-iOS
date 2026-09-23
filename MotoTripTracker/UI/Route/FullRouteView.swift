@@ -1,6 +1,7 @@
 import Combine
 import CoreLocation
 import MapKit
+import SwiftData
 import SwiftUI
 import UIKit
 import os
@@ -16,6 +17,8 @@ struct FullRouteView: View {
     @Environment(ThemeStore.self) private var theme
 
     let tripID: UUID
+    @Query private var trips: [Trip]
+    @Query private var storedPoints: [RoutePoint]
     @State private var points: [RoutePoint] = []
     @State private var displayCoordinates: [CLLocationCoordinate2D] = []
     @State private var waypoints: [RoutePoint] = []
@@ -29,6 +32,18 @@ struct FullRouteView: View {
     @State private var replayStartElapsed: TimeInterval = 0
     @State private var selectedWaypointID: UUID?
     @State private var usingPolylineFallback = false
+
+    init(tripID: UUID) {
+        self.tripID = tripID
+        let id = tripID
+        _trips = Query(filter: #Predicate<Trip> { $0.id == id })
+        _storedPoints = Query(
+            filter: #Predicate<RoutePoint> { $0.trip?.id == id },
+            sort: [SortDescriptor(\.timestamp)]
+        )
+    }
+
+    private var trip: Trip? { trips.first }
 
     private var replayEngine: RouteReplayEngine { RouteReplayEngine(points: points) }
     private var replayFrame: RouteReplayFrame? { replayEngine.frame(at: replayElapsed) }
@@ -106,13 +121,10 @@ struct FullRouteView: View {
         .navigationTitle("Route")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
-            loadRouteData()
+            applyRouteDisplay()
             Task {
                 await app.repository.ensureWaypointsAnalyzed(tripID: tripID)
-                let refreshed = app.repository.waypoints(for: tripID)
-                if refreshed.count != waypoints.count {
-                    waypoints = refreshed
-                }
+                applyRouteDisplay()
             }
         }
         .onDisappear {
@@ -178,46 +190,17 @@ struct FullRouteView: View {
         }
     }
 
-    private func loadRouteData() {
-        let trip = app.repository.fetchTrip(id: tripID)
-        var loaded = app.repository.routePoints(for: tripID)
-        usingPolylineFallback = false
-
-        // Summary can show a route from the encoded polyline even when the
-        // SwiftData relationship fault returns no points (seen after long
-        // background rides). Reconstruct a display path so Full Route is not blank.
-        if loaded.count < 2,
-           let encoded = trip?.encodedRoutePolyline,
-           !encoded.isEmpty {
-            let decoded = PolylineEncoder.decode(encoded)
-            if decoded.count >= 2 {
-                let start = trip?.startTime ?? Date().timeIntervalSince1970
-                let end = trip?.endTime ?? start + Double(max(decoded.count - 1, 1))
-                let span = max(end - start, Double(decoded.count - 1))
-                loaded = decoded.enumerated().map { index, coord in
-                    let t = decoded.count == 1
-                        ? start
-                        : start + span * Double(index) / Double(decoded.count - 1)
-                    return RoutePoint(
-                        latitude: coord.lat,
-                        longitude: coord.lng,
-                        altitude: 0,
-                        speedMps: 0,
-                        timestamp: t
-                    )
-                }
-                usingPolylineFallback = true
-                AppLogger.persistence.warning(
-                    "FullRoute fallback to encoded polyline id=\(AppLogger.uuidShort(tripID), privacy: .public) verts=\(decoded.count)"
-                )
-            }
+    private func applyRouteDisplay() {
+        let display = RideRouteDisplay.resolve(trip: trip, storedPoints: storedPoints)
+        if display.usingPolylineFallback {
+            AppLogger.persistence.warning(
+                "FullRoute fallback to encoded polyline id=\(AppLogger.uuidShort(tripID), privacy: .public) verts=\(display.points.count)"
+            )
         }
-
-        points = loaded
-        displayCoordinates = loaded.map {
-            CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude)
-        }
-        waypoints = usingPolylineFallback ? [] : app.repository.waypoints(for: tripID)
+        points = display.points
+        displayCoordinates = display.coordinates
+        waypoints = display.waypoints
+        usingPolylineFallback = display.usingPolylineFallback
         tripDistanceKm = (trip?.distanceMeters ?? 0) / 1000
         replayElapsed = 0
         isReplaying = false
@@ -620,4 +603,14 @@ struct FullRouteView: View {
             )
         )
     }
+}
+
+#Preview {
+    let app = AppContainer(inMemory: true)
+    NavigationStack {
+        FullRouteView(tripID: UUID())
+    }
+    .environment(app)
+    .environment(app.theme)
+    .modelContainer(app.modelContainer)
 }
