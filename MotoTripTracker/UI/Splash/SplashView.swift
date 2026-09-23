@@ -110,23 +110,22 @@ struct SplashView: View {
             roadPhase = 1
         }
 
-        // Animate GPS bars filling 0→4
-        for step in 1...4 {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2 + Double(step) * 0.18) {
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
-                    gpsBars = step
+        Task { @MainActor in
+            for step in 1...4 {
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(0.2 + Double(step) * 0.18))
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+                        gpsBars = step
+                    }
                 }
             }
-        }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.15) {
+            try? await Task.sleep(for: .seconds(2.15))
             withAnimation(.easeInOut(duration: 0.45)) {
                 dismissOpacity = 0
                 logoScale = 1.08
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
-                onFinished()
-            }
+            try? await Task.sleep(for: .seconds(0.45))
+            onFinished()
         }
     }
 }

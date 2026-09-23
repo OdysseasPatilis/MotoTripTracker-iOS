@@ -1,7 +1,7 @@
 import Foundation
 
 /// Classifies elapsed time between GPS pings as moving vs stopped using speed.
-final class StopDetector: @unchecked Sendable {
+final class StopDetector {
     private var lastUpdateTime: TimeInterval = 0
 
     /// Gaps > 20 min are ignored (app kill / multi-hour pause without GPS).
