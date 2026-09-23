@@ -2,7 +2,7 @@ import CoreLocation
 import Foundation
 
 /// Converts consecutive GPS fixes into a distance increment that won't blow up average speed.
-enum RideDistanceFilter {
+nonisolated enum RideDistanceFilter {
     private static let absoluteMaxMeters: CLLocationDistance = 2_000
 
     /// Prefer GPS speed × elapsed time. Geographic distance is only a sanity check

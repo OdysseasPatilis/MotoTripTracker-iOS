@@ -69,42 +69,28 @@ final class TripRepository: TripPersisting {
 
     /// Marks START/END/summit/stops when missing. Safe to call again from Full Route.
     func ensureWaypointsAnalyzed(tripID: UUID, totalDistanceMeters: Double? = nil) async {
-        let points = routePoints(for: tripID)
-        guard !points.isEmpty else { return }
-        if points.contains(where: \.isWaypoint) {
-            return
-        }
-        let distance = totalDistanceMeters
-            ?? fetchTrip(id: tripID)?.distanceMeters
-            ?? 0
-        await WaypointAnalyzer.analyzeAndMarkWaypoints(
-            points: points,
-            totalDistanceMeters: distance
-        )
-        do {
-            try modelContext.save()
-            let waypointCount = points.filter(\.isWaypoint).count
-            AppLogger.persistence.info(
-                "Waypoints saved id=\(AppLogger.uuidShort(tripID), privacy: .public) count=\(waypointCount)"
-            )
-        } catch {
-            AppLogger.persistence.error(
-                "Failed to save waypoints: \(error.localizedDescription, privacy: .public)"
+        let writer = writer
+        enqueueWrite {
+            await writer.analyzeAndSaveWaypoints(
+                tripID: tripID,
+                totalDistanceMeters: totalDistanceMeters
             )
         }
+        await waitForPendingWrites()
     }
 
     func renameTrip(id: UUID, title: String?) {
-        guard let trip = fetchTrip(id: id) else { return }
-        let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines)
-        trip.title = (trimmed?.isEmpty == false) ? trimmed : nil
-        saveContext(action: "rename")
+        let writer = writer
+        enqueueWrite {
+            await writer.renameTrip(id: id, title: title)
+        }
     }
 
     func toggleFavorite(id: UUID) {
-        guard let trip = fetchTrip(id: id) else { return }
-        trip.isFavorite.toggle()
-        saveContext(action: "favorite")
+        let writer = writer
+        enqueueWrite {
+            await writer.toggleFavorite(id: id)
+        }
     }
 
     func uploadTrip(id: UUID) async throws {
@@ -156,56 +142,17 @@ final class TripRepository: TripPersisting {
 
     /// Removes trips left open when the app was force-quit mid-ride (endTime still zero).
     func recoverOrphanedTrips() {
-        let orphans = allTrips().filter { $0.endTime <= 0 && $0.startTime > 0 }
-        guard !orphans.isEmpty else { return }
-        for trip in orphans {
-            AppLogger.persistence.notice(
-                "Removing orphaned trip id=\(AppLogger.uuidShort(trip.id), privacy: .public)"
-            )
-            modelContext.delete(trip)
-        }
-        do {
-            try modelContext.save()
-        } catch {
-            AppLogger.persistence.error(
-                "Failed to remove orphaned trips: \(error.localizedDescription, privacy: .public)"
-            )
+        let writer = writer
+        enqueueWrite {
+            await writer.recoverOrphanedTrips()
         }
     }
 
     /// Fixes rides whose moving+stopped time was truncated by sub-second GPS integer division.
     func repairUndercountedTripTimings() {
-        var repaired = 0
-        for trip in allTrips() {
-            let points = trip.routePoints
-            guard TripTimingRecomputer.looksUndercounted(
-                movingSeconds: trip.movingTime,
-                stoppedSeconds: trip.stoppedTime,
-                points: points
-            ) else { continue }
-
-            let times = TripTimingRecomputer.times(from: points)
-            let before = trip.movingTime + trip.stoppedTime
-            trip.movingTime = times.movingSeconds
-            trip.stoppedTime = times.stoppedSeconds
-            trip.avgSpeed = RideDistanceFilter.averageSpeedKmh(
-                distanceMeters: trip.distanceMeters,
-                movingTimeSeconds: times.movingSeconds,
-                maxSpeedKmh: trip.maxSpeed
-            )
-            repaired += 1
-            AppLogger.persistence.notice(
-                "Repaired trip timing id=\(AppLogger.uuidShort(trip.id), privacy: .public) \(before)s → \(times.movingSeconds + times.stoppedSeconds)s"
-            )
-        }
-        guard repaired > 0 else { return }
-        do {
-            try modelContext.save()
-            AppLogger.persistence.notice("Repaired timings on \(repaired) trip(s)")
-        } catch {
-            AppLogger.persistence.error(
-                "Failed to save repaired timings: \(error.localizedDescription, privacy: .public)"
-            )
+        let writer = writer
+        enqueueWrite {
+            await writer.repairUndercountedTripTimings()
         }
     }
 
@@ -221,18 +168,12 @@ final class TripRepository: TripPersisting {
     }
 
     private func finishSavedTrip(tripID: UUID, distanceMeters: Double) async {
+        await writer.analyzeAndSaveWaypoints(
+            tripID: tripID,
+            totalDistanceMeters: distanceMeters
+        )
         if let trip = fetchTrip(id: tripID) {
             TripCloudUploader.enqueueUpload(trip: trip, points: routePoints(for: tripID))
-        }
-        await ensureWaypointsAnalyzed(tripID: tripID, totalDistanceMeters: distanceMeters)
-    }
-
-    private func saveContext(action: String) {
-        do {
-            try modelContext.save()
-            AppLogger.persistence.debug("Trip \(action) saved")
-        } catch {
-            AppLogger.persistence.error("Failed to \(action): \(error.localizedDescription, privacy: .public)")
         }
     }
 }

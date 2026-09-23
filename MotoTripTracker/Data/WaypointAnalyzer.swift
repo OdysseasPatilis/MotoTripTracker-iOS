@@ -3,50 +3,85 @@ import Foundation
 import MapKit
 import os
 
-enum WaypointAnalyzer {
+nonisolated struct WaypointSample: Sendable {
+    let id: UUID
+    let latitude: Double
+    let longitude: Double
+    let altitude: Double
+    let speedMps: Double
+    let timestamp: TimeInterval
+}
+
+nonisolated struct WaypointMark: Sendable {
+    let pointID: UUID
+    let type: String
+    let title: String
+    var subtitle: String
+}
+
+nonisolated enum WaypointAnalyzer {
     private static let stopSpeedThreshold = 0.5
 
-    @MainActor
-    static func analyzeAndMarkWaypoints(
-        points: [RoutePoint],
-        totalDistanceMeters: Double
-    ) async {
+    static func analyze(
+        points: [WaypointSample],
+        totalDistanceMeters: Double,
+        geocodeAddresses: Bool = true
+    ) async -> [WaypointMark] {
         guard !points.isEmpty else {
             AppLogger.waypoint.debug("Waypoint analysis skipped — no points")
-            return
+            return []
         }
 
         AppLogger.waypoint.info("Analyzing waypoints for \(points.count) route points")
 
+        var marksByID: [UUID: WaypointMark] = [:]
+
+        func mark(
+            _ point: WaypointSample,
+            type: String,
+            title: String,
+            subtitle: String
+        ) {
+            marksByID[point.id] = WaypointMark(
+                pointID: point.id,
+                type: type,
+                title: title,
+                subtitle: subtitle
+            )
+        }
+
         let startPoint = points[0]
-        startPoint.isWaypoint = true
-        startPoint.waypointType = "START"
-        startPoint.waypointTitle = "Departure"
-        startPoint.waypointSubtitle = coordinateLabel(
-            latitude: startPoint.latitude,
-            longitude: startPoint.longitude
+        mark(
+            startPoint,
+            type: "START",
+            title: "Departure",
+            subtitle: coordinateLabel(latitude: startPoint.latitude, longitude: startPoint.longitude)
         )
 
         if let topSpeedPoint = points.max(by: { $0.speedMps < $1.speedMps }),
            topSpeedPoint.speedMps * 3.6 >= 100 {
-            topSpeedPoint.isWaypoint = true
-            topSpeedPoint.waypointType = "TOP_SPEED"
-            topSpeedPoint.waypointTitle = "Top Speed Hit"
-            topSpeedPoint.waypointSubtitle = String(format: "%.1f km/h", topSpeedPoint.speedMps * 3.6)
+            mark(
+                topSpeedPoint,
+                type: "TOP_SPEED",
+                title: "Top Speed Hit",
+                subtitle: String(format: "%.1f km/h", topSpeedPoint.speedMps * 3.6)
+            )
         }
 
         let startAltitude = startPoint.altitude
         if let summitPoint = points.max(by: { $0.altitude < $1.altitude }),
            summitPoint.altitude > startAltitude + 100 {
-            summitPoint.isWaypoint = true
-            summitPoint.waypointType = "SUMMIT"
-            summitPoint.waypointTitle = "Highest Elevation"
-            summitPoint.waypointSubtitle = "\(Int(summitPoint.altitude))m above sea level"
+            mark(
+                summitPoint,
+                type: "SUMMIT",
+                title: "Highest Elevation",
+                subtitle: "\(Int(summitPoint.altitude))m above sea level"
+            )
         }
 
-        var stopStart: RoutePoint?
+        var stopStart: WaypointSample?
         var distanceAtStopStart = 0.0
-        var restStops: [RoutePoint] = []
+        var restStopIDs: [UUID] = []
 
         if points.count > 2 {
             for i in 1..<(points.count - 1) {
@@ -64,26 +99,29 @@ enum WaypointAnalyzer {
                         let seconds = (stopDurationMs / 1000) % 60
                         let timeStr = String(format: "%02d:%02d", minutes, seconds)
 
-                        stop.isWaypoint = true
+                        let type: String
+                        let title: String
                         switch stopDurationMs {
                         case ..<10_000:
-                            stop.waypointType = "STOP_SIGN"
-                            stop.waypointTitle = "Stop Sign / Yield"
-                            stop.waypointSubtitle = "\(kmString)km - \(timeStr) pause"
+                            type = "STOP_SIGN"
+                            title = "Stop Sign / Yield"
                         case ..<60_000:
-                            stop.waypointType = "TRAFFIC_LIGHT"
-                            stop.waypointTitle = "Traffic Light"
-                            stop.waypointSubtitle = "\(kmString)km - \(timeStr) pause"
+                            type = "TRAFFIC_LIGHT"
+                            title = "Traffic Light"
                         case ..<300_000:
-                            stop.waypointType = "BRIEF_STOP"
-                            stop.waypointTitle = "Brief Stop"
-                            stop.waypointSubtitle = "\(kmString)km - \(timeStr) pause"
+                            type = "BRIEF_STOP"
+                            title = "Brief Stop"
                         default:
-                            stop.waypointType = "REST_STOP"
-                            stop.waypointTitle = "Rest Stop"
-                            stop.waypointSubtitle = "\(kmString)km - \(timeStr) pause"
-                            restStops.append(stop)
+                            type = "REST_STOP"
+                            title = "Rest Stop"
+                            restStopIDs.append(stop.id)
                         }
+                        mark(
+                            stop,
+                            type: type,
+                            title: title,
+                            subtitle: "\(kmString)km - \(timeStr) pause"
+                        )
                     }
                     stopStart = nil
                 }
@@ -91,32 +129,45 @@ enum WaypointAnalyzer {
         }
 
         let endPoint = points[points.count - 1]
-        endPoint.isWaypoint = true
-        endPoint.waypointType = "END"
-        endPoint.waypointTitle = "Arrival"
-        endPoint.waypointSubtitle = coordinateLabel(
-            latitude: endPoint.latitude,
-            longitude: endPoint.longitude
+        mark(
+            endPoint,
+            type: "END",
+            title: "Arrival",
+            subtitle: coordinateLabel(latitude: endPoint.latitude, longitude: endPoint.longitude)
         )
 
         // Geocode only a few labels — reverse geocoding every stop on a long ride
         // used to block finalize for minutes (or never finish in background).
-        startPoint.waypointSubtitle = await streetName(
-            latitude: startPoint.latitude,
-            longitude: startPoint.longitude
-        )
-        endPoint.waypointSubtitle = await streetName(
-            latitude: endPoint.latitude,
-            longitude: endPoint.longitude
-        )
-        for stop in restStops.prefix(3) {
-            let address = await streetName(latitude: stop.latitude, longitude: stop.longitude)
-            let existing = stop.waypointSubtitle
-            stop.waypointSubtitle = existing.isEmpty ? address : "\(address) · \(existing)"
+        if geocodeAddresses {
+            if var startMark = marksByID[startPoint.id] {
+                startMark.subtitle = await streetName(
+                    latitude: startPoint.latitude,
+                    longitude: startPoint.longitude
+                )
+                marksByID[startPoint.id] = startMark
+            }
+            if var endMark = marksByID[endPoint.id] {
+                endMark.subtitle = await streetName(
+                    latitude: endPoint.latitude,
+                    longitude: endPoint.longitude
+                )
+                marksByID[endPoint.id] = endMark
+            }
+            for stopID in restStopIDs.prefix(3) {
+                guard var stopMark = marksByID[stopID],
+                      let stop = points.first(where: { $0.id == stopID }) else { continue }
+                let address = await streetName(latitude: stop.latitude, longitude: stop.longitude)
+                stopMark.subtitle = stopMark.subtitle.isEmpty
+                    ? address
+                    : "\(address) · \(stopMark.subtitle)"
+                marksByID[stopID] = stopMark
+            }
         }
 
-        let marked = points.filter(\.isWaypoint).count
-        AppLogger.waypoint.notice("Waypoint analysis complete — \(marked) markers on \(points.count) points")
+        AppLogger.waypoint.notice(
+            "Waypoint analysis complete — \(marksByID.count) markers on \(points.count) points"
+        )
+        return Array(marksByID.values)
     }
 
     private static func coordinateLabel(latitude: Double, longitude: Double) -> String {
