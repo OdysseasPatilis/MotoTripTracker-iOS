@@ -174,7 +174,10 @@ struct RideSummaryView: View {
         .confirmationDialog("Delete this ride?", isPresented: $showDeleteConfirm, titleVisibility: .visible) {
             Button("Delete", role: .destructive) {
                 app.repository.deleteTrip(id: tripID)
-                dismiss()
+                Task {
+                    await app.repository.waitForPendingWrites()
+                    dismiss()
+                }
             }
             Button("Cancel", role: .cancel) {}
         }
