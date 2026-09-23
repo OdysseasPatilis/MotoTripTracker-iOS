@@ -71,6 +71,7 @@ final class AppContainer {
         Task { @MainActor in
             repository.recoverOrphanedTrips()
             repository.repairUndercountedTripTimings()
+            await repository.waitForPendingWrites()
             RideWidgetSnapshotPublisher.publish(from: repository)
             await RideLiveActivityController.shared.endStaleActivitiesIfNeeded()
         }

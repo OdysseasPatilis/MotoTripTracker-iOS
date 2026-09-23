@@ -88,11 +88,111 @@ actor TripWriteActor {
         AppLogger.persistence.notice("Trip deleted id=\(AppLogger.uuidShort(id), privacy: .public)")
     }
 
+    func renameTrip(id: UUID, title: String?) {
+        guard let trip = fetchTrip(id: id) else { return }
+        let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        trip.title = (trimmed?.isEmpty == false) ? trimmed : nil
+        saveContext(action: "rename")
+    }
+
+    func toggleFavorite(id: UUID) {
+        guard let trip = fetchTrip(id: id) else { return }
+        trip.isFavorite.toggle()
+        saveContext(action: "favorite")
+    }
+
+    func recoverOrphanedTrips() {
+        let orphans = allTrips().filter { $0.endTime <= 0 && $0.startTime > 0 }
+        guard !orphans.isEmpty else { return }
+        for trip in orphans {
+            AppLogger.persistence.notice(
+                "Removing orphaned trip id=\(AppLogger.uuidShort(trip.id), privacy: .public)"
+            )
+            modelContext.delete(trip)
+        }
+        saveContext(action: "recover orphans")
+    }
+
+    func repairUndercountedTripTimings() {
+        var repaired = 0
+        for trip in allTrips() {
+            let points = routePoints(for: trip.id)
+            guard TripTimingRecomputer.looksUndercounted(
+                movingSeconds: trip.movingTime,
+                stoppedSeconds: trip.stoppedTime,
+                points: points
+            ) else { continue }
+
+            let times = TripTimingRecomputer.times(from: points)
+            let before = trip.movingTime + trip.stoppedTime
+            trip.movingTime = times.movingSeconds
+            trip.stoppedTime = times.stoppedSeconds
+            trip.avgSpeed = RideDistanceFilter.averageSpeedKmh(
+                distanceMeters: trip.distanceMeters,
+                movingTimeSeconds: times.movingSeconds,
+                maxSpeedKmh: trip.maxSpeed
+            )
+            repaired += 1
+            AppLogger.persistence.notice(
+                "Repaired trip timing id=\(AppLogger.uuidShort(trip.id), privacy: .public) \(before)s → \(times.movingSeconds + times.stoppedSeconds)s"
+            )
+        }
+        guard repaired > 0 else { return }
+        saveContext(action: "repair timings")
+        AppLogger.persistence.notice("Repaired timings on \(repaired) trip(s)")
+    }
+
+    func analyzeAndSaveWaypoints(
+        tripID: UUID,
+        totalDistanceMeters: Double?,
+        geocodeAddresses: Bool = true
+    ) async {
+        let points = routePoints(for: tripID)
+        guard !points.isEmpty else { return }
+        if points.contains(where: \.isWaypoint) { return }
+        let distance = totalDistanceMeters ?? fetchTrip(id: tripID)?.distanceMeters ?? 0
+        let samples = points.map {
+            WaypointSample(
+                id: $0.id,
+                latitude: $0.latitude,
+                longitude: $0.longitude,
+                altitude: $0.altitude,
+                speedMps: $0.speedMps,
+                timestamp: $0.timestamp
+            )
+        }
+        let marks = await WaypointAnalyzer.analyze(
+            points: samples,
+            totalDistanceMeters: distance,
+            geocodeAddresses: geocodeAddresses
+        )
+        let pointsByID = Dictionary(uniqueKeysWithValues: points.map { ($0.id, $0) })
+        for mark in marks {
+            guard let point = pointsByID[mark.pointID] else { continue }
+            point.isWaypoint = true
+            point.waypointType = mark.type
+            point.waypointTitle = mark.title
+            point.waypointSubtitle = mark.subtitle
+        }
+        saveContext(action: "waypoints")
+        let waypointCount = marks.count
+        AppLogger.persistence.info(
+            "Waypoints saved id=\(AppLogger.uuidShort(tripID), privacy: .public) count=\(waypointCount)"
+        )
+    }
+
     private func fetchTrip(id: UUID) -> Trip? {
         let descriptor = FetchDescriptor<Trip>(
             predicate: #Predicate { $0.id == id }
         )
         return try? modelContext.fetch(descriptor).first
+    }
+
+    private func allTrips() -> [Trip] {
+        let descriptor = FetchDescriptor<Trip>(
+            sortBy: [SortDescriptor(\.startTime, order: .reverse)]
+        )
+        return (try? modelContext.fetch(descriptor)) ?? []
     }
 
     private func routePoints(for tripID: UUID) -> [RoutePoint] {

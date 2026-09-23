@@ -2,7 +2,7 @@ import Foundation
 
 /// Rebuilds moving / stopped seconds from recorded route point timestamps.
 /// Used to repair rides that under-counted time (sub-second GPS truncation bug).
-enum TripTimingRecomputer {
+nonisolated enum TripTimingRecomputer {
     /// Gaps longer than this are treated as app kill / multi-hour pause and ignored.
     private static let maxValidDeltaSeconds: TimeInterval = 1_200
     private static let movingSpeedMps: Double = 0.1
