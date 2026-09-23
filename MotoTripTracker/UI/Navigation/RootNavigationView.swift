@@ -1,3 +1,4 @@
+import SwiftData
 import SwiftUI
 
 enum AppRoute: Hashable {
@@ -32,4 +33,12 @@ struct RootNavigationView: View {
         .preferredColorScheme(theme.mode.colorScheme)
         .animation(.easeInOut(duration: 0.25), value: theme.mode)
     }
+}
+
+#Preview {
+    let app = AppContainer(inMemory: true)
+    RootNavigationView()
+        .environment(app)
+        .environment(app.theme)
+        .modelContainer(app.modelContainer)
 }

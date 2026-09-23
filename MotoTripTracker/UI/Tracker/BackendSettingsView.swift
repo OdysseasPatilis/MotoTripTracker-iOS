@@ -155,3 +155,9 @@ struct BackendSettingsView: View {
         }
     }
 }
+
+#Preview {
+    let app = AppContainer(inMemory: true)
+    BackendSettingsView()
+        .environment(app.theme)
+}

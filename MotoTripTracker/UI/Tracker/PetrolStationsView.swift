@@ -1,4 +1,5 @@
 import MapKit
+import SwiftData
 import SwiftUI
 import UIKit
 
@@ -292,4 +293,12 @@ struct PetrolStationsView: View {
         searchPlan = result.plan
         stations = result.stations
     }
+}
+
+#Preview {
+    let app = AppContainer(inMemory: true)
+    PetrolStationsView()
+        .environment(app)
+        .environment(app.theme)
+        .modelContainer(app.modelContainer)
 }

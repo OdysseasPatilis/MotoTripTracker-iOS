@@ -1,3 +1,4 @@
+import SwiftData
 import SwiftUI
 import UIKit
 
@@ -142,4 +143,12 @@ struct FuelSettingsView: View {
             }
         }
     }
+}
+
+#Preview {
+    let app = AppContainer(inMemory: true)
+    FuelSettingsView()
+        .environment(app)
+        .environment(app.theme)
+        .modelContainer(app.modelContainer)
 }
