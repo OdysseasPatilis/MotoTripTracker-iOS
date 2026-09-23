@@ -3,7 +3,7 @@ import Foundation
 
 /// Counts corners from GPS bearing changes while moving, and estimates peak lateral G
 /// via v² / r for the turn radius implied by the heading change.
-final class CornerDetector: @unchecked Sendable {
+final class CornerDetector {
     private var lastBearing: CLLocationDirection?
     private var lastLocation: CLLocation?
     private var accumulatedTurnDeg: Double = 0
