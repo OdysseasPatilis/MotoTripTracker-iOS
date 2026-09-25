@@ -39,8 +39,10 @@ nonisolated struct RideWidgetSnapshot: Codable, Hashable, Sendable {
         return snapshot
     }
 
-    func save() {
-        guard let data = try? JSONEncoder().encode(self) else { return }
+    @discardableResult
+    func save() -> Bool {
+        guard let data = try? JSONEncoder().encode(self) else { return false }
         AppGroup.defaults.set(data, forKey: Self.storageKey)
+        return true
     }
 }

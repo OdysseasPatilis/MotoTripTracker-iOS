@@ -106,9 +106,13 @@ final class FuelService {
     }
 
     func addFuel(liters: Double) {
-        fuelRemainingLiters = min(tankCapacityLiters, fuelRemainingLiters + max(0, liters))
+        let added = max(0, liters)
+        fuelRemainingLiters = min(tankCapacityLiters, fuelRemainingLiters + added)
         lastFillDate = Date()
         UserDefaults.standard.set(lastFillDate!.timeIntervalSince1970, forKey: Self.lastFillKey)
+        AppLogger.app.notice(
+            "Fuel added \(added, format: .fixed(precision: 1)) L → \(self.fuelRemainingLiters, format: .fixed(precision: 1)) L"
+        )
     }
 
     func resetRideConsumption() {

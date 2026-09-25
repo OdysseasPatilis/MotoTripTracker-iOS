@@ -2,12 +2,27 @@ import CoreLocation
 import Foundation
 import os
 
-enum TrafficCameraPackDownloadError: Error, Equatable {
+enum TrafficCameraPackDownloadError: Error, Equatable, LocalizedError {
     case emptyCSV
     case missingHeader
     case unsupportedCountry
     case httpStatus(Int)
     case emptyResponse
+
+    var errorDescription: String? {
+        switch self {
+        case .emptyCSV:
+            return "empty CSV"
+        case .missingHeader:
+            return "CSV missing id/latitude/longitude"
+        case .unsupportedCountry:
+            return "unsupported country"
+        case .httpStatus(let code):
+            return "HTTP \(code)"
+        case .emptyResponse:
+            return "empty response"
+        }
+    }
 }
 
 /// Fetches and parses speedcams.world country CSVs into `TrafficCameraRegionPack`s.
@@ -98,18 +113,38 @@ enum TrafficCameraPackDownloader {
         request.setValue("text/csv", forHTTPHeaderField: "Accept")
         request.timeoutInterval = 45
 
-        let (data, response) = try await session.data(for: request)
+        let cc = countryCode.uppercased()
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            AppLogger.trafficCamera.warning(
+                "Camera pack request failed \(cc, privacy: .public): \(error.localizedDescription, privacy: .public)"
+            )
+            throw error
+        }
         let status = (response as? HTTPURLResponse)?.statusCode ?? -1
         if status == 404 {
+            AppLogger.trafficCamera.info("Camera pack HTTP 404 for \(cc, privacy: .public)")
             throw TrafficCameraPackDownloadError.unsupportedCountry
         }
         guard (200...299).contains(status) else {
+            AppLogger.trafficCamera.warning("Camera pack HTTP \(status) for \(cc, privacy: .public)")
             throw TrafficCameraPackDownloadError.httpStatus(status)
         }
         guard let text = String(data: data, encoding: .utf8), !text.isEmpty else {
+            AppLogger.trafficCamera.warning("Camera pack empty response for \(cc, privacy: .public)")
             throw TrafficCameraPackDownloadError.emptyResponse
         }
-        return try parseCSV(text, countryCode: countryCode)
+        do {
+            return try parseCSV(text, countryCode: countryCode)
+        } catch {
+            AppLogger.trafficCamera.warning(
+                "Camera pack CSV parse failed \(cc, privacy: .public): \(error.localizedDescription, privacy: .public)"
+            )
+            throw error
+        }
     }
 }
 
@@ -142,7 +177,7 @@ final class TrafficCameraPackStore: @unchecked Sendable {
         }
         self.metaURL = self.directory.appendingPathComponent("camera_pack_meta.json")
         try? fileManager.createDirectory(at: self.directory, withIntermediateDirectories: true)
-        self.meta = Self.loadMeta(from: metaURL) ?? [:]
+        self.meta = Self.loadMeta(from: metaURL, fileManager: fileManager) ?? [:]
     }
 
     func packURL(countryCode: String) -> URL {
@@ -152,19 +187,33 @@ final class TrafficCameraPackStore: @unchecked Sendable {
     func loadPack(countryCode: String) -> (pack: TrafficCameraRegionPack, downloadedAt: Date)? {
         let cc = countryCode.uppercased()
         let url = packURL(countryCode: cc)
-        guard let data = try? Data(contentsOf: url),
-              let pack = try? TrafficCameraRegionPackStore.decode(data)
-        else { return nil }
-        lock.lock()
-        let downloadedAt = meta[cc]?.downloadedAt ?? .distantPast
-        lock.unlock()
-        return (pack, downloadedAt)
+        guard fileManager.fileExists(atPath: url.path) else { return nil }
+        do {
+            let data = try Data(contentsOf: url)
+            let pack = try TrafficCameraRegionPackStore.decode(data)
+            lock.lock()
+            let downloadedAt = meta[cc]?.downloadedAt ?? .distantPast
+            lock.unlock()
+            return (pack, downloadedAt)
+        } catch {
+            AppLogger.trafficCamera.warning(
+                "Camera pack disk read failed \(cc, privacy: .public): \(error.localizedDescription, privacy: .public)"
+            )
+            return nil
+        }
     }
 
     func save(pack: TrafficCameraRegionPack, countryCode: String, downloadedAt: Date) throws {
         let cc = countryCode.uppercased()
         let data = try TrafficCameraRegionPackStore.encode(pack)
-        try data.write(to: packURL(countryCode: cc), options: .atomic)
+        do {
+            try data.write(to: packURL(countryCode: cc), options: .atomic)
+        } catch {
+            AppLogger.trafficCamera.error(
+                "Camera pack save failed \(cc, privacy: .public): \(error.localizedDescription, privacy: .public)"
+            )
+            throw error
+        }
         lock.lock()
         var entry = meta[cc] ?? MetaEntry()
         entry.downloadedAt = downloadedAt
@@ -246,20 +295,44 @@ final class TrafficCameraPackStore: @unchecked Sendable {
         }
         let toRemove = sorted.prefix(sorted.count - maxCountries)
         for (cc, _) in toRemove {
-            try? fileManager.removeItem(at: packURL(countryCode: cc))
+            do {
+                try fileManager.removeItem(at: packURL(countryCode: cc))
+            } catch {
+                AppLogger.trafficCamera.warning(
+                    "Camera pack evict failed \(cc, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                )
+            }
             meta.removeValue(forKey: cc)
         }
         persistMetaLocked()
         lock.unlock()
+        AppLogger.trafficCamera.info("Evicted \(toRemove.count) camera pack(s)")
     }
 
     private func persistMetaLocked() {
-        guard let data = try? JSONEncoder().encode(meta) else { return }
-        try? data.write(to: metaURL, options: .atomic)
+        guard let data = try? JSONEncoder().encode(meta) else {
+            AppLogger.trafficCamera.error("Camera pack meta encode failed")
+            return
+        }
+        do {
+            try data.write(to: metaURL, options: .atomic)
+        } catch {
+            AppLogger.trafficCamera.error(
+                "Camera pack meta write failed: \(error.localizedDescription, privacy: .public)"
+            )
+        }
     }
 
-    private static func loadMeta(from url: URL) -> [String: MetaEntry]? {
-        guard let data = try? Data(contentsOf: url) else { return nil }
-        return try? JSONDecoder().decode([String: MetaEntry].self, from: data)
+    private static func loadMeta(from url: URL, fileManager: FileManager) -> [String: MetaEntry]? {
+        guard fileManager.fileExists(atPath: url.path) else { return nil }
+        do {
+            let data = try Data(contentsOf: url)
+            return try JSONDecoder().decode([String: MetaEntry].self, from: data)
+        } catch {
+            AppLogger.trafficCamera.warning(
+                "Camera pack meta unreadable: \(error.localizedDescription, privacy: .public)"
+            )
+            return nil
+        }
     }
 }

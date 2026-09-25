@@ -1,4 +1,5 @@
 import Foundation
+import os
 import WidgetKit
 
 /// Publishes completed-ride aggregates into the App Group for Home Screen widgets.
@@ -30,7 +31,16 @@ enum RideWidgetSnapshotPublisher {
         snapshot.weekMaxSpeedKmh = weekTrips.map(\.maxSpeed).max() ?? 0
         snapshot.weekCornerCount = weekTrips.reduce(0) { $0 + $1.cornerCount }
         snapshot.updatedAt = now
-        snapshot.save()
+        if UserDefaults(suiteName: AppGroup.identifier) == nil {
+            AppLogger.app.error("Widget snapshot App Group unavailable — wrote standard UserDefaults")
+        }
+        if snapshot.save() {
+            AppLogger.app.notice(
+                "Widget snapshot saved rides=\(trips.count) week=\(snapshot.weekRideCount) dist=\(snapshot.weekDistanceKm, format: .fixed(precision: 1))km"
+            )
+        } else {
+            AppLogger.app.error("Widget snapshot encode failed")
+        }
 
         WidgetCenter.shared.reloadAllTimelines()
     }
