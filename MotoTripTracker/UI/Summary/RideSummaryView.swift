@@ -135,7 +135,9 @@ struct RideSummaryView: View {
             if let trip {
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button {
-                        app.repository.toggleFavorite(id: tripID)
+                        Task {
+                            await app.repository.toggleFavorite(id: tripID)
+                        }
                     } label: {
                         Image(systemName: trip.isFavorite ? "star.fill" : "star")
                     }
@@ -184,7 +186,9 @@ struct RideSummaryView: View {
         .alert("Rename ride", isPresented: $showRename) {
             TextField("Title", text: $renameText)
             Button("Save") {
-                app.repository.renameTrip(id: tripID, title: renameText)
+                Task {
+                    await app.repository.renameTrip(id: tripID, title: renameText)
+                }
             }
             Button("Cancel", role: .cancel) {}
         }

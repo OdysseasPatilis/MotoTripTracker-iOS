@@ -167,6 +167,7 @@ flowchart TB
 
   subgraph data [Data]
     Repo[TripRepository]
+    Writer[TripWriteActor]
     Models[Trip RoutePoint - SwiftData]
     Waypoints[WaypointAnalyzer]
     GPX[GpxExporter]
@@ -179,6 +180,7 @@ flowchart TB
   Container --> SpeedLim
   Container --> Nav
   Container --> Repo
+  Container --> Petrol
   Container --> Theme
   Loc -->|CLLocation| TripMgr
   Loc -->|CLLocation| SpeedLim
@@ -188,8 +190,10 @@ flowchart TB
   TripMgr --> Physics
   TripMgr --> Repo
   SpeedLim --> Cache
-  Repo --> Models
-  Repo --> Waypoints
+  Repo -->|enqueueWrite| Writer
+  Writer --> Models
+  Repo -->|mainContext reads| Models
+  Writer --> Waypoints
   Repo -->|on save| Cloud
   Summary --> Moments
   Summary --> GPX
@@ -204,7 +208,7 @@ flowchart TB
 | **App** | DI / composition root | `AppContainer`, `MotoTripTrackerApp` |
 | **Domain** | Ride loop, filtering, physics, moments | `TripManager`, `TripStats`, detectors / smoothers, `TwistinessCalculator`, `RouteReplayEngine`, `RideMomentsCalculator`, `TripTimingRecomputer` |
 | **Services** | Platform & network | `LocationService`, `SpeedLimitService` / `SpeedLimitRegionPack` / cache, `NavigationService`, `NavigationVoicePrompt`, `FuelService`, `PetrolStationFinder` / preferences / search strategy, `RouteWeatherService`, `RideLiveActivityController`, `RideWidgetSnapshotPublisher` |
-| **Data** | Persistence, export & cloud upload | `TripRepository`, SwiftData models, `WaypointAnalyzer`, `GpxExporter`, `PolylineEncoder`, `TripCloudUploader`, `BackendSettings`, `OpeningHoursEvaluator` |
+| **Data** | Persistence, export & cloud upload | `TripRepository` (reads + write enqueue), `TripWriteActor` (sole SwiftData writer), SwiftData models, `WaypointAnalyzer`, `GpxExporter`, `PolylineEncoder`, `TripCloudUploader`, `BackendSettings`, `OpeningHoursEvaluator` |
 | **Utilities** | Cross-cutting helpers | `AppLogger`, `RideFormatters`, `RideShareHelper`, `MapKitPlace` |
 
 ### Ride session flow
@@ -213,12 +217,14 @@ flowchart TB
 2. `LocationService.startRideUpdating()` begins GPS (foreground always; **background only if Always is granted**)
 3. Screen stay-awake is enabled for the active session
 4. Each fix is validated (`SpeedFilter`), then fed to `TripManager`, `SpeedLimitService`, and `NavigationService` (route ETA + weather-ahead refresh when a destination is set)
-5. `TripManager` updates `TripStats`, persists route points via `TripRepository`, and runs corner / G / elevation / stop logic
+5. `TripManager` updates `TripStats`, enqueues route points through `TripRepository` → `TripWriteActor`, and runs corner / G / elevation / stop logic
 6. **Stop** finalizes the trip (or deletes it if under 50 m), drops background GPS intent, ends the Live Activity, **encodes and saves the polyline immediately**, runs **waypoint analysis asynchronously afterward** (so a long reverse-geocode pass cannot block the route path), and **enqueues a cloud upload** when a backend URL is configured
 7. On launch, orphaned mid-ride SwiftData rows and stale Live Activities from a force-quit are cleaned up; under-counted moving/stopped times on saved trips are repaired from route points
 
 ### Persistence (SwiftData)
 
+- **`TripWriteActor`**: sole writer (`@ModelActor`) for create, GPS points, finalize, delete, rename, favorite, orphan recover, timing repair, and waypoints
+- **`TripRepository`**: `mainContext` reads plus a serial `enqueueWrite` chain into the actor
 - **`Trip`**: aggregate stats, title, favorite, polyline, lateral G, corner count, twistiness score
 - **`RoutePoint`**: lat/lon/altitude/speed/timestamp + optional waypoint metadata  
   Cascade-deleted with the parent trip

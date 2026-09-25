@@ -79,18 +79,20 @@ final class TripRepository: TripPersisting {
         await waitForPendingWrites()
     }
 
-    func renameTrip(id: UUID, title: String?) {
+    func renameTrip(id: UUID, title: String?) async {
         let writer = writer
         enqueueWrite {
             await writer.renameTrip(id: id, title: title)
         }
+        await waitForPendingWrites()
     }
 
-    func toggleFavorite(id: UUID) {
+    func toggleFavorite(id: UUID) async {
         let writer = writer
         enqueueWrite {
             await writer.toggleFavorite(id: id)
         }
+        await waitForPendingWrites()
     }
 
     func uploadTrip(id: UUID) async throws {

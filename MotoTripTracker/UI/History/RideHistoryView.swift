@@ -127,7 +127,9 @@ struct RideHistoryView: View {
                             }
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                 Button {
-                                    app.repository.toggleFavorite(id: ride.id)
+                                    Task {
+                                        await app.repository.toggleFavorite(id: ride.id)
+                                    }
                                 } label: {
                                     Label(
                                         ride.isFavorite ? "Unfavorite" : "Favorite",

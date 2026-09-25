@@ -14,8 +14,6 @@ struct PetrolStationsView: View {
     @State private var isLoading = true
     @State private var detailItem: MKMapItem?
 
-    private let finder = PetrolStationFinder()
-
     var body: some View {
         let colors = theme.palette
 
@@ -284,7 +282,7 @@ struct PetrolStationsView: View {
         let speedKmh = app.tripManager.sessionState.stats.speed
         let course = location.course >= 0 ? location.course : nil
 
-        let result = await finder.search(
+        let result = await app.petrolStationFinder.search(
             near: location.coordinate,
             preferences: app.petrolPreferences,
             speedKmh: speedKmh,
