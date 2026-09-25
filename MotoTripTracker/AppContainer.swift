@@ -17,6 +17,7 @@ final class AppContainer {
     let navigationService: NavigationService
     let fuelService: FuelService
     let petrolPreferences: PetrolPreferences
+    let petrolStationFinder: PetrolStationFinder
     let routeWeatherService: RouteWeatherService
     let theme: ThemeStore
 
@@ -46,6 +47,7 @@ final class AppContainer {
         self.navigationService = NavigationService(voice: voice)
         self.fuelService = FuelService()
         self.petrolPreferences = PetrolPreferences()
+        self.petrolStationFinder = PetrolStationFinder()
         self.routeWeatherService = RouteWeatherService()
         self.theme = ThemeStore()
 
