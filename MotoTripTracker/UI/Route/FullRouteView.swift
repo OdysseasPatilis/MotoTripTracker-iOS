@@ -3,7 +3,6 @@ import CoreLocation
 import MapKit
 import SwiftData
 import SwiftUI
-import UIKit
 import os
 
 enum MapLayer: String, CaseIterable, Identifiable {
@@ -81,9 +80,14 @@ struct FullRouteView: View {
                 .id("route-map")
 
                 Section {
-                    profileChart(colors: colors)
-                        .listRowBackground(Color.clear)
-                    legendCaption(colors: colors)
+                    FullRouteProfileChart(
+                        points: points,
+                        selectedLayer: selectedLayer,
+                        tripDistanceKm: tripDistanceKm,
+                        colors: colors
+                    )
+                    .listRowBackground(Color.clear)
+                    FullRouteLegendCaption(selectedLayer: selectedLayer, colors: colors)
                         .listRowBackground(Color.clear)
                 }
 
@@ -154,8 +158,8 @@ struct FullRouteView: View {
     private func waypointRow(_ waypoint: RoutePoint, colors: AppPalette) -> some View {
         let isSelected = selectedWaypointID == waypoint.id
         return HStack(spacing: 12) {
-            Image(systemName: iconName(for: waypoint.waypointType))
-                .foregroundStyle(markerColor(for: waypoint.waypointType, colors: colors))
+            Image(systemName: FullRouteMapStyling.iconName(for: waypoint.waypointType))
+                .foregroundStyle(FullRouteMapStyling.markerColor(for: waypoint.waypointType, colors: colors))
                 .frame(width: 24)
             VStack(alignment: .leading, spacing: 2) {
                 Text(waypoint.waypointTitle)
@@ -204,7 +208,7 @@ struct FullRouteView: View {
         tripDistanceKm = (trip?.distanceMeters ?? 0) / 1000
         replayElapsed = 0
         isReplaying = false
-        if let region = Self.region(fitting: displayCoordinates) {
+        if let region = FullRouteMapStyling.region(fitting: displayCoordinates) {
             cameraPosition = .region(region)
         }
     }
@@ -309,7 +313,12 @@ struct FullRouteView: View {
                     }
                 }
             } else if displayCoordinates.count >= 2 {
-                ForEach(Array(mergedSegments(colors: colors).enumerated()), id: \.offset) { _, segment in
+                ForEach(Array(FullRouteMapStyling.mergedSegments(
+                    points: points,
+                    selectedLayer: selectedLayer,
+                    usingPolylineFallback: usingPolylineFallback,
+                    colors: colors
+                ).enumerated()), id: \.offset) { _, segment in
                     MapPolyline(coordinates: segment.coordinates)
                         .stroke(segment.color, lineWidth: 5)
                 }
@@ -329,15 +338,15 @@ struct FullRouteView: View {
                         ZStack {
                             if isSelected {
                                 Circle()
-                                    .fill(markerColor(for: waypoint.waypointType, colors: colors).opacity(0.28))
+                                    .fill(FullRouteMapStyling.markerColor(for: waypoint.waypointType, colors: colors).opacity(0.28))
                                     .frame(width: 44, height: 44)
                             }
-                            Image(systemName: iconName(for: waypoint.waypointType))
+                            Image(systemName: FullRouteMapStyling.iconName(for: waypoint.waypointType))
                                 .font(.caption.weight(.bold))
                                 .foregroundStyle(.white)
                                 .padding(isSelected ? 9 : 6)
                                 .background(
-                                    markerColor(for: waypoint.waypointType, colors: colors),
+                                    FullRouteMapStyling.markerColor(for: waypoint.waypointType, colors: colors),
                                     in: Circle()
                                 )
                                 .overlay(
@@ -374,234 +383,6 @@ struct FullRouteView: View {
         }
         coords.insert(frame.coordinate, at: 0)
         return coords
-    }
-
-    private func profileChart(colors: AppPalette) -> some View {
-        let values: [Double] = points.map { point in
-            selectedLayer == .elevation ? point.altitude : point.speedMps * 3.6
-        }
-        let lineColor = selectedLayer == .elevation ? colors.neonBlue : colors.routeTeal
-        let fillColor = lineColor.opacity(0.12)
-        let peak = values.max() ?? 0
-        let peakLabel = selectedLayer == .elevation
-            ? "+\(Int(peak)) m peak"
-            : "\(Int(peak)) km/h peak"
-        let peakColor = selectedLayer == .elevation ? colors.neonBlue : colors.routeCoral
-
-        return VStack(alignment: .leading, spacing: 8) {
-            Text(selectedLayer == .elevation ? "Elevation profile" : "Speed profile")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(colors.textPrimary)
-
-            Canvas { context, size in
-                context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(colors.bgCard))
-
-                guard values.count > 1 else { return }
-
-                let pad: CGFloat = 10
-                let minV = values.min() ?? 0
-                let maxV = values.max() ?? 1
-                let range = max(maxV - minV, 1)
-                let usableWidth = size.width - pad * 2
-                let usableHeight = size.height - pad * 2
-
-                func point(at index: Int) -> CGPoint {
-                    let x = pad + usableWidth * CGFloat(index) / CGFloat(values.count - 1)
-                    let y = pad + usableHeight * (1 - CGFloat((values[index] - minV) / range))
-                    return CGPoint(x: x, y: y)
-                }
-
-                var path = Path()
-                for index in values.indices {
-                    let p = point(at: index)
-                    if index == 0 {
-                        path.move(to: p)
-                    } else {
-                        path.addLine(to: p)
-                    }
-                }
-
-                var fill = path
-                fill.addLine(to: CGPoint(x: pad + usableWidth, y: size.height - pad))
-                fill.addLine(to: CGPoint(x: pad, y: size.height - pad))
-                fill.closeSubpath()
-                context.fill(fill, with: .color(fillColor))
-                context.stroke(path, with: .color(lineColor), lineWidth: 2)
-            }
-            .frame(height: 80)
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .id(selectedLayer)
-
-            HStack {
-                Text("0 km")
-                    .font(.caption2)
-                    .foregroundStyle(colors.textSecondary)
-                Spacer()
-                Text(peakLabel)
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(peakColor)
-                Spacer()
-                Text(String(format: "%.1f km", tripDistanceKm))
-                    .font(.caption2)
-                    .foregroundStyle(colors.textSecondary)
-            }
-        }
-    }
-
-    private func legendCaption(colors: AppPalette) -> some View {
-        let text: String = selectedLayer == .speed
-            ? "Slower → Faster"
-            : "Low · Mid · High elevation thirds"
-        return Text(text)
-            .font(.caption)
-            .foregroundStyle(colors.textSecondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private struct RouteSegment {
-        let coordinates: [CLLocationCoordinate2D]
-        let color: Color
-    }
-
-    private func segments(colors: AppPalette) -> [RouteSegment] {
-        guard points.count > 1 else { return [] }
-        let altitudes = points.map(\.altitude)
-        let minE = altitudes.min() ?? 0
-        let maxE = altitudes.max() ?? 0
-        let speedsKmh = points.map { $0.speedMps * 3.6 }
-        let minS = speedsKmh.min() ?? 0
-        let maxS = speedsKmh.max() ?? 0
-
-        var result: [RouteSegment] = []
-        for i in 0..<(points.count - 1) {
-            let a = points[i]
-            let b = points[i + 1]
-            let color: Color
-            if usingPolylineFallback {
-                color = colors.neonBlue
-            } else if selectedLayer == .speed {
-                let kmh = a.speedMps * 3.6
-                let t = maxS > minS ? (kmh - minS) / (maxS - minS) : 0.5
-                color = speedGradientColor(t: t, colors: colors)
-            } else {
-                let elev = a.altitude
-                let t = maxE > minE ? (elev - minE) / (maxE - minE) : 0.5
-                color = t < 0.33 ? colors.routeTeal : (t < 0.66 ? colors.neonBlue : colors.routeCoral)
-            }
-            result.append(
-                RouteSegment(
-                    coordinates: [
-                        CLLocationCoordinate2D(latitude: a.latitude, longitude: a.longitude),
-                        CLLocationCoordinate2D(latitude: b.latitude, longitude: b.longitude)
-                    ],
-                    color: color
-                )
-            )
-        }
-        return result
-    }
-
-    /// Merge adjacent same-color edges so long rides don't create thousands of MapPolyline views.
-    private func mergedSegments(colors: AppPalette) -> [RouteSegment] {
-        let raw = segments(colors: colors)
-        guard let first = raw.first else { return [] }
-        var merged: [RouteSegment] = []
-        var currentCoords = first.coordinates
-        var currentColor = first.color
-
-        for segment in raw.dropFirst() {
-            if colorsApproximatelyEqual(segment.color, currentColor) {
-                if let last = segment.coordinates.last {
-                    currentCoords.append(last)
-                }
-            } else {
-                merged.append(RouteSegment(coordinates: currentCoords, color: currentColor))
-                currentCoords = segment.coordinates
-                currentColor = segment.color
-            }
-        }
-        merged.append(RouteSegment(coordinates: currentCoords, color: currentColor))
-        return merged
-    }
-
-    private func colorsApproximatelyEqual(_ a: Color, _ b: Color) -> Bool {
-        var ar: CGFloat = 0, ag: CGFloat = 0, ab: CGFloat = 0, aa: CGFloat = 0
-        var br: CGFloat = 0, bg: CGFloat = 0, bb: CGFloat = 0, ba: CGFloat = 0
-        UIColor(a).getRed(&ar, green: &ag, blue: &ab, alpha: &aa)
-        UIColor(b).getRed(&br, green: &bg, blue: &bb, alpha: &ba)
-        return abs(ar - br) < 0.02 && abs(ag - bg) < 0.02 && abs(ab - bb) < 0.02
-    }
-
-    /// Continuous teal → blue → coral by relative speed (no Slow / Cruise / Fast buckets).
-    private func speedGradientColor(t: Double, colors: AppPalette) -> Color {
-        let clamped = min(max(t, 0), 1)
-        if clamped < 0.5 {
-            return blend(colors.routeTeal, colors.neonBlue, amount: clamped * 2)
-        }
-        return blend(colors.neonBlue, colors.routeCoral, amount: (clamped - 0.5) * 2)
-    }
-
-    private func blend(_ a: Color, _ b: Color, amount: Double) -> Color {
-        let t = min(max(amount, 0), 1)
-        // Approximate blend in sRGB via UIColor for MapKit polyline strokes.
-        var ar: CGFloat = 0, ag: CGFloat = 0, ab: CGFloat = 0, aa: CGFloat = 0
-        var br: CGFloat = 0, bg: CGFloat = 0, bb: CGFloat = 0, ba: CGFloat = 0
-        UIColor(a).getRed(&ar, green: &ag, blue: &ab, alpha: &aa)
-        UIColor(b).getRed(&br, green: &bg, blue: &bb, alpha: &ba)
-        return Color(
-            red: Double(ar + (br - ar) * t),
-            green: Double(ag + (bg - ag) * t),
-            blue: Double(ab + (bb - ab) * t),
-            opacity: Double(aa + (ba - aa) * t)
-        )
-    }
-
-    private func iconName(for type: String?) -> String {
-        switch type {
-        case "START": return "flag.fill"
-        case "END": return "flag.checkered"
-        case "TOP_SPEED": return "gauge.with.dots.needle.67percent"
-        case "SUMMIT": return "mountain.2.fill"
-        case "STOP_SIGN": return "stop.circle.fill"
-        case "TRAFFIC_LIGHT": return "light.beacon.max.fill"
-        case "BRIEF_STOP", "REST_STOP": return "cup.and.saucer.fill"
-        default: return "mappin.circle.fill"
-        }
-    }
-
-    private func markerColor(for type: String?, colors: AppPalette) -> Color {
-        switch type {
-        case "START": return colors.neonGreen
-        case "END": return colors.neonRed
-        case "TOP_SPEED": return colors.routeAmber
-        case "SUMMIT": return Color(hex: 0xD988FF)
-        case "REST_STOP": return colors.neonBlue
-        default: return colors.layerActive
-        }
-    }
-
-    private static func region(fitting coordinates: [CLLocationCoordinate2D]) -> MKCoordinateRegion? {
-        guard !coordinates.isEmpty else { return nil }
-        var minLat = coordinates[0].latitude
-        var maxLat = coordinates[0].latitude
-        var minLng = coordinates[0].longitude
-        var maxLng = coordinates[0].longitude
-        for c in coordinates {
-            minLat = min(minLat, c.latitude)
-            maxLat = max(maxLat, c.latitude)
-            minLng = min(minLng, c.longitude)
-            maxLng = max(maxLng, c.longitude)
-        }
-        return MKCoordinateRegion(
-            center: CLLocationCoordinate2D(
-                latitude: (minLat + maxLat) / 2,
-                longitude: (minLng + maxLng) / 2
-            ),
-            span: MKCoordinateSpan(
-                latitudeDelta: max((maxLat - minLat) * 1.4, 0.01),
-                longitudeDelta: max((maxLng - minLng) * 1.4, 0.01)
-            )
-        )
     }
 }
 

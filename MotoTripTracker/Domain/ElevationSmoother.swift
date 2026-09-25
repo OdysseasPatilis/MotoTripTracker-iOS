@@ -1,6 +1,6 @@
 import Foundation
 
-final class ElevationSmoother: @unchecked Sendable {
+final class ElevationSmoother {
     private let alpha: Double
     private var smoothedAltitude: Double?
     private var referenceAltitude: Double?

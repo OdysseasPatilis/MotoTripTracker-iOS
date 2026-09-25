@@ -23,7 +23,15 @@ final class AppContainer {
     init(inMemory: Bool = false) {
         let schema = Schema([Trip.self, RoutePoint.self])
         let configuration = ModelConfiguration(isStoredInMemoryOnly: inMemory)
-        let container = try! ModelContainer(for: schema, configurations: [configuration])
+        let container: ModelContainer
+        do {
+            container = try ModelContainer(for: schema, configurations: [configuration])
+        } catch {
+            AppLogger.app.critical(
+                "SwiftData container failed: \(error.localizedDescription, privacy: .public)"
+            )
+            fatalError("SwiftData container failed: \(error)")
+        }
         self.modelContainer = container
 
         let repository = TripRepository(modelContext: container.mainContext, container: container)

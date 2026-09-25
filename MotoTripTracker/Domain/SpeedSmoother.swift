@@ -1,6 +1,6 @@
 import Foundation
 
-final class SpeedSmoother: @unchecked Sendable {
+final class SpeedSmoother {
     private let windowSize: Int
     private var speedBuffer: [Double] = []
 
