@@ -16,6 +16,7 @@ final class SpeedLimitService {
 
     private var lastFetchLocation: CLLocation?
     private var lastFetchTime: Date?
+    private var limitHold = SpeedLimitHold()
     private var inFlightTask: Task<Void, Never>?
     private var preferredEndpointIndex = 0
     private var cache: [String: Int?] = [:]
@@ -66,14 +67,11 @@ final class SpeedLimitService {
         // Bundled city pack first (offline). Empty cells and implausible pack
         // hits (e.g. 50 km/h while riding at highway speed) fall through to Overpass.
         if let hit = SpeedLimitRegionPackStore.limit(for: location, packs: regionPacks) {
-            if autoLimitKmh != hit.kmh {
-                autoLimitKmh = hit.kmh
-                lastUpdated = Date()
-                if LogThrottle.shouldLog(key: "speedLimit.pack.\(hit.pack.id)", interval: 20) {
-                    AppLogger.speedLimit.debug(
-                        "Region pack \(hit.pack.id, privacy: .public) → \(hit.kmh) km/h"
-                    )
-                }
+            publish(limitHold.consider(hit.kmh, at: location))
+            if LogThrottle.shouldLog(key: "speedLimit.pack.\(hit.pack.id)", interval: 20) {
+                AppLogger.speedLimit.debug(
+                    "Region pack \(hit.pack.id, privacy: .public) candidate=\(hit.kmh) shown=\(self.autoLimitKmh ?? -1)"
+                )
             }
             if limitLooksPlausible(hit.kmh, for: location) {
                 lastFetchLocation = location
@@ -101,8 +99,7 @@ final class SpeedLimitService {
         let key = gridKey(lat: lat, lon: lon)
 
         if let cachedLimit = cache[key] ?? nil, limitLooksPlausible(cachedLimit, for: location) {
-            autoLimitKmh = cachedLimit
-            lastUpdated = Date()
+            publish(limitHold.consider(cachedLimit, at: location))
             lastFetchLocation = location
             lastFetchTime = Date()
             AppLogger.speedLimit.debug("Cache hit key=\(key, privacy: .public) limit=\(cachedLimit)")
@@ -111,8 +108,7 @@ final class SpeedLimitService {
 
         if let nearby = nearestCachedLimit(lat: lat, lon: lon),
            limitLooksPlausible(nearby, for: location) {
-            autoLimitKmh = nearby
-            lastUpdated = Date()
+            publish(limitHold.consider(nearby, at: location))
             AppLogger.speedLimit.debug("Offline neighbour limit=\(nearby)")
         }
 
@@ -125,6 +121,7 @@ final class SpeedLimitService {
     func reset() {
         inFlightTask?.cancel()
         autoLimitKmh = nil
+        limitHold.reset()
         lastUpdated = nil
         lastFetchLocation = nil
         lastFetchTime = nil
@@ -132,6 +129,12 @@ final class SpeedLimitService {
         cache.keys.filter { cache[$0] == nil }.forEach { cache.removeValue(forKey: $0) }
         persistCacheIfNeeded()
         AppLogger.speedLimit.debug("Speed limit service reset (kept \(self.cache.count) offline cells)")
+    }
+
+    private func publish(_ kmh: Int) {
+        guard autoLimitKmh != kmh else { return }
+        autoLimitKmh = kmh
+        lastUpdated = Date()
     }
 
     /// True when GPS speed is not clearly above the posted limit (pack/cache may be a side street).
@@ -174,10 +177,9 @@ final class SpeedLimitService {
         if let resolved {
             cache[cacheKey] = resolved
             cacheDirty = true
-            autoLimitKmh = resolved
-            lastUpdated = Date()
+            publish(limitHold.consider(resolved, at: location))
             persistCacheIfNeeded()
-            AppLogger.speedLimit.notice("Speed limit resolved → \(resolved) km/h")
+            AppLogger.speedLimit.notice("Speed limit resolved → \(resolved) km/h shown=\(self.autoLimitKmh ?? -1)")
         } else {
             AppLogger.speedLimit.info("No maxspeed tag found nearby")
         }
