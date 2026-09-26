@@ -8,18 +8,26 @@ enum NavigationRouteMath {
         var nearestIndex: Int
     }
 
+    /// How far behind the last match we still search, so a small rewind stays on the route.
+    private static let matchBackMeters: CLLocationDistance = 250
+    /// How far ahead we search. Farther vertices (a loop passing nearby) cannot steal the match.
+    private static let matchForwardMeters: CLLocationDistance = 2_500
+
     static func progress(
         at coordinate: CLLocationCoordinate2D,
-        on route: [CLLocationCoordinate2D]
+        on route: [CLLocationCoordinate2D],
+        nearIndex: Int? = nil
     ) -> Progress {
         guard route.count > 1 else {
             return Progress(remaining: 0, nearestDistance: 0, nearestIndex: 0)
         }
         let here = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
+        let indices = matchIndices(on: route, near: nearIndex)
 
-        var nearestIndex = 0
+        var nearestIndex = indices.lowerBound
         var nearestDistance = Double.greatestFiniteMagnitude
-        for (index, coord) in route.enumerated() {
+        for index in indices {
+            let coord = route[index]
             let distance = here.distance(from: CLLocation(latitude: coord.latitude, longitude: coord.longitude))
             if distance < nearestDistance {
                 nearestDistance = distance
@@ -37,6 +45,29 @@ enum NavigationRouteMath {
             }
         }
         return Progress(remaining: remaining, nearestDistance: nearestDistance, nearestIndex: nearestIndex)
+    }
+
+    /// Vertices around the last match. A full-route search lets one sideways fix snap onto
+    /// a different part of the polyline that happens to pass nearby.
+    private static func matchIndices(on route: [CLLocationCoordinate2D], near nearIndex: Int?) -> Range<Int> {
+        guard let nearIndex, route.indices.contains(nearIndex) else {
+            return route.indices
+        }
+
+        var start = nearIndex
+        var backward: CLLocationDistance = 0
+        while start > 0, backward < matchBackMeters {
+            backward += meters(from: route[start - 1], to: route[start])
+            start -= 1
+        }
+
+        var end = nearIndex
+        var forward: CLLocationDistance = 0
+        while end < route.count - 1, forward < matchForwardMeters {
+            forward += meters(from: route[end], to: route[end + 1])
+            end += 1
+        }
+        return start..<(end + 1)
     }
 
     static func nextStepIndex(

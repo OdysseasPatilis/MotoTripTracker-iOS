@@ -62,7 +62,10 @@ final class AppContainer {
             guard let self else { return }
             self.tripManager.onLocationUpdate(location)
             self.speedLimitService.refresh(for: location)
-            self.navigationService.updateOrigin(location.coordinate)
+            self.navigationService.updateOrigin(
+                location.coordinate,
+                horizontalAccuracy: location.horizontalAccuracy
+            )
             let session = self.tripManager.sessionState
             let isRiding = session.isActive && !session.isPaused
             if isRiding {
@@ -113,7 +116,10 @@ final class AppContainer {
         if let location = locationService.lastLocation {
             speedLimitService.refresh(for: location)
             trafficCameraService.refresh(for: location, alertsEnabled: true)
-            navigationService.updateOrigin(location.coordinate)
+            navigationService.updateOrigin(
+                location.coordinate,
+                horizontalAccuracy: location.horizontalAccuracy
+            )
         }
         Task { await RideLiveActivityController.shared.start() }
         pushLiveActivityUpdate(force: true)
@@ -133,7 +139,10 @@ final class AppContainer {
         locationService.reinforceRideUpdating()
         if let location = locationService.lastLocation {
             speedLimitService.refresh(for: location)
-            navigationService.updateOrigin(location.coordinate)
+            navigationService.updateOrigin(
+                location.coordinate,
+                horizontalAccuracy: location.horizontalAccuracy
+            )
             let alertsEnabled = !tripManager.sessionState.isPaused
             trafficCameraService.refresh(for: location, alertsEnabled: alertsEnabled)
         }

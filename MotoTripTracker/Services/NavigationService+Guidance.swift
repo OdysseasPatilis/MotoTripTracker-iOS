@@ -71,6 +71,8 @@ extension NavigationService {
         distanceToNextManeuver = steps.first?.distance ?? distance
         approachedStepID = nil
         announcedStepID = nil
+        matchedRouteIndex = 0
+        offRouteGate.reset()
         isRouting = false
         isRecalculating = false
         isOffRoute = false
@@ -85,7 +87,12 @@ extension NavigationService {
     }
 
     func recomputeRemaining(from coordinate: CLLocationCoordinate2D) {
-        let progress = NavigationRouteMath.progress(at: coordinate, on: routeCoordinates)
+        let progress = NavigationRouteMath.progress(
+            at: coordinate,
+            on: routeCoordinates,
+            nearIndex: matchedRouteIndex
+        )
+        matchedRouteIndex = progress.nearestIndex
         nearestRouteDistance = progress.nearestDistance
         distanceRemaining = progress.remaining
         if totalRouteDistance > 0, totalTravelTime > 0 {
@@ -137,10 +144,19 @@ extension NavigationService {
         voice.speak(step.instruction)
     }
 
-    func checkOffRouteAndRecalculate(from coordinate: CLLocationCoordinate2D) {
+    func checkOffRouteAndRecalculate(
+        from coordinate: CLLocationCoordinate2D,
+        horizontalAccuracy: CLLocationAccuracy
+    ) {
         guard hasDestination, hasRoute, !isRouting, !isRecalculating else { return }
 
-        if nearestRouteDistance > Self.offRouteThresholdMeters {
+        let commit = offRouteGate.shouldRecalculate(
+            nearestDistance: nearestRouteDistance,
+            threshold: Self.offRouteThresholdMeters,
+            horizontalAccuracy: horizontalAccuracy,
+            now: Date()
+        )
+        if commit {
             isOffRoute = true
             let now = Date()
             guard now.timeIntervalSince(lastRecalculateAt) >= Self.recalculateCooldown else { return }
@@ -149,7 +165,7 @@ extension NavigationService {
                 "Off route (\(Int(self.nearestRouteDistance))m) — recalculating"
             )
             computeRoute(isRecalculation: true)
-        } else if isOffRoute, nearestRouteDistance <= Self.offRouteThresholdMeters / 2 {
+        } else if nearestRouteDistance <= Self.offRouteThresholdMeters / 2 {
             isOffRoute = false
         }
     }

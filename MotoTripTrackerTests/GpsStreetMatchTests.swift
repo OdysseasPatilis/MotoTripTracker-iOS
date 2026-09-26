@@ -91,6 +91,71 @@ struct SpeedLimitServiceStabilityTests {
     }
 }
 
+struct OffRouteGateTests {
+    @Test func singleSpikeDoesNotRecalculate() {
+        var gate = OffRouteGate()
+        let decision = gate.shouldRecalculate(
+            nearestDistance: 120,
+            threshold: 80,
+            horizontalAccuracy: 8,
+            now: t0
+        )
+        #expect(!decision)
+    }
+
+    @Test func sustainedDepartureRecalculates() {
+        var gate = OffRouteGate()
+        let immediate = gate.shouldRecalculate(nearestDistance: 120, threshold: 80, horizontalAccuracy: 8, now: t0)
+        let early = gate.shouldRecalculate(nearestDistance: 130, threshold: 80, horizontalAccuracy: 8, now: t0.addingTimeInterval(3))
+        let committed = gate.shouldRecalculate(nearestDistance: 140, threshold: 80, horizontalAccuracy: 8, now: t0.addingTimeInterval(7))
+        #expect(!immediate)
+        #expect(!early)
+        #expect(committed)
+    }
+
+    @Test func returningToTheRouteCancelsThePendingRecalculation() {
+        var gate = OffRouteGate()
+        _ = gate.shouldRecalculate(nearestDistance: 120, threshold: 80, horizontalAccuracy: 8, now: t0)
+        _ = gate.shouldRecalculate(nearestDistance: 20, threshold: 80, horizontalAccuracy: 8, now: t0.addingTimeInterval(2))
+        let restarted = gate.shouldRecalculate(nearestDistance: 120, threshold: 80, horizontalAccuracy: 8, now: t0.addingTimeInterval(3))
+        #expect(!restarted)
+    }
+
+    @Test func poorAccuracyDoesNotStartOrClearTheDwell() {
+        var gate = OffRouteGate()
+        let coarse = gate.shouldRecalculate(nearestDistance: 200, threshold: 80, horizontalAccuracy: 80, now: t0)
+        let started = gate.shouldRecalculate(nearestDistance: 120, threshold: 80, horizontalAccuracy: 10, now: t0.addingTimeInterval(1))
+        // A bad fix in the middle must not wipe the dwell that a good fix already started.
+        let ignored = gate.shouldRecalculate(nearestDistance: 10, threshold: 80, horizontalAccuracy: 90, now: t0.addingTimeInterval(2))
+        let committed = gate.shouldRecalculate(nearestDistance: 120, threshold: 80, horizontalAccuracy: 10, now: t0.addingTimeInterval(8))
+        #expect(!coarse)
+        #expect(!started)
+        #expect(!ignored)
+        #expect(committed)
+    }
+}
+
+struct RouteMatchWindowTests {
+    @Test func nearbyLaterVertexDoesNotStealTheMatch() {
+        var route = [CLLocationCoordinate2D(latitude: 37.98000, longitude: 23.72000)]
+        // ~222 m steps north, well past the forward search window, then a vertex beside the start.
+        for step in 1...16 {
+            route.append(
+                CLLocationCoordinate2D(
+                    latitude: 37.98000 + Double(step) * 0.002,
+                    longitude: 23.72000
+                )
+            )
+        }
+        route.append(CLLocationCoordinate2D(latitude: 37.98018, longitude: 23.72000))
+
+        let here = CLLocationCoordinate2D(latitude: 37.98016, longitude: 23.72000)
+        let progress = NavigationRouteMath.progress(at: here, on: route, nearIndex: 0)
+        #expect(progress.nearestIndex == 0)
+        #expect(progress.nearestDistance < 30)
+    }
+}
+
 private let t0 = Date(timeIntervalSince1970: 1_700_000_000)
 
 private func location(

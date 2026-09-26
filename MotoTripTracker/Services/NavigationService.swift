@@ -57,6 +57,8 @@ final class NavigationService {
     private var navigationStartedAt: Date?
     var lastRecalculateAt: Date = .distantPast
     var nearestRouteDistance: CLLocationDistance = 0
+    var matchedRouteIndex: Int = 0
+    var offRouteGate = OffRouteGate()
     var approachedStepID: UUID?
     var announcedStepID: UUID?
     private var routeRequestGeneration: UInt64 = 0
@@ -141,7 +143,10 @@ final class NavigationService {
 
     /// Called on every GPS fix. Updates search region, remaining distance/ETA,
     /// turn-by-turn step progress, off-route recalculation, and auto-arrival.
-    func updateOrigin(_ coordinate: CLLocationCoordinate2D) {
+    func updateOrigin(
+        _ coordinate: CLLocationCoordinate2D,
+        horizontalAccuracy: CLLocationAccuracy = 10
+    ) {
         origin = coordinate
         destinationSearch.updateRegion(center: coordinate)
         if phase == .previewing,
@@ -151,10 +156,12 @@ final class NavigationService {
             computeRoute(isRecalculation: false, requestAlternates: true)
         }
         guard hasRoute else { return }
+        // A coarse fix is not a new street. Hold the last good match.
+        guard horizontalAccuracy >= 0, horizontalAccuracy <= OffRouteGate.accuracyCeiling else { return }
         recomputeRemaining(from: coordinate)
         guard phase == .navigating else { return }
         advanceStepIfNeeded(from: coordinate)
-        checkOffRouteAndRecalculate(from: coordinate)
+        checkOffRouteAndRecalculate(from: coordinate, horizontalAccuracy: horizontalAccuracy)
         checkArrival(from: coordinate)
     }
 
@@ -254,6 +261,8 @@ final class NavigationService {
         plannedMotoTravelTime = 0
         navigationStartedAt = nil
         arrivalCandidateSince = nil
+        matchedRouteIndex = 0
+        offRouteGate.reset()
         isRouting = false
         isOffRoute = false
         isRecalculating = false
