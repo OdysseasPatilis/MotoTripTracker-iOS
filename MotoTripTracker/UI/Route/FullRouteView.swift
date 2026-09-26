@@ -246,26 +246,16 @@ struct FullRouteView: View {
                 .buttonStyle(.bordered)
                 .tint(colors.neonBlue)
 
-                Picker("Speed", selection: $playbackRate) {
-                    Text("1×").tag(1.0)
-                    Text("2×").tag(2.0)
-                    Text("4×").tag(4.0)
-                }
-                .pickerStyle(.segmented)
+                ReplayRatePicker(rate: $playbackRate)
+                    .equatable()
 
                 Spacer(minLength: 0)
 
                 if let frame = replayFrame {
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text("\(Int(frame.speedKmh.rounded())) km/h")
-                            .font(.caption.weight(.bold))
-                            .foregroundStyle(colors.neonGreen)
-                        Text(RideFormatters.secondsToTime(Int64(frame.elapsed)))
-                            .font(.caption2)
-                            .foregroundStyle(colors.textSecondary)
-                    }
+                    replayReadout(frame: frame, colors: colors)
                 }
             }
+            .animation(nil, value: replayElapsed)
 
             if replayEngine.duration > 0 {
                 Slider(
@@ -283,6 +273,39 @@ struct FullRouteView: View {
             }
         }
         .padding(.vertical, 4)
+    }
+
+    /// Reserves the widest speed and clock strings so digit changes cannot
+    /// resize the row and shift the 1×/2×/4× control.
+    private func replayReadout(frame: RouteReplayFrame, colors: AppPalette) -> some View {
+        VStack(alignment: .trailing, spacing: 2) {
+            reservedReadout(
+                visible: "\(Int(frame.speedKmh.rounded())) km/h",
+                reserved: "000 km/h",
+                font: .caption.weight(.bold),
+                color: colors.neonGreen
+            )
+            reservedReadout(
+                visible: RideFormatters.secondsToTime(Int64(frame.elapsed)),
+                reserved: "00:00:00",
+                font: .caption2,
+                color: colors.textSecondary
+            )
+        }
+    }
+
+    private func reservedReadout(visible: String, reserved: String, font: Font, color: Color) -> some View {
+        ZStack(alignment: .trailing) {
+            Text(reserved)
+                .font(font.monospacedDigit())
+                .hidden()
+                .accessibilityHidden(true)
+            Text(visible)
+                .font(font.monospacedDigit())
+                .foregroundStyle(color)
+                .lineLimit(1)
+        }
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     private func routeMap(colors: AppPalette) -> some View {
@@ -383,6 +406,27 @@ struct FullRouteView: View {
         }
         coords.insert(frame.coordinate, at: 0)
         return coords
+    }
+}
+
+/// Segmented rate control isolated from replay ticks. The parent row refreshes
+/// with every speed sample; without `Equatable`, UISegmentedControl redraws and the
+/// selection pill twitches.
+private struct ReplayRatePicker: View, Equatable {
+    @Binding var rate: Double
+
+    static func == (lhs: ReplayRatePicker, rhs: ReplayRatePicker) -> Bool {
+        lhs.rate == rhs.rate
+    }
+
+    var body: some View {
+        Picker("Speed", selection: $rate) {
+            Text("1×").tag(1.0)
+            Text("2×").tag(2.0)
+            Text("4×").tag(4.0)
+        }
+        .pickerStyle(.segmented)
+        .fixedSize(horizontal: true, vertical: false)
     }
 }
 
