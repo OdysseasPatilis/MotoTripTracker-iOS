@@ -4,6 +4,7 @@ A full tour of this iPhone app: what it does, how the folders fit together, whic
 
 Related docs:
 - [`README.md`](../README.md) — feature list and quick architecture diagram  
+- [`docs/Navigation.md`](Navigation.md) — how in-app turn-by-turn guidance follows a route  
 - [`docs/RND-Backend.md`](RND-Backend.md) — future backend / live-share R&D  
 
 Last updated: 2026-08-30
@@ -424,17 +425,19 @@ python3 Scripts/build_athens_speed_limit_pack.py
 
 ### Navigation
 
-**Source:** `Services/NavigationService.swift`
+The full path — search, MapKit routes, snap-to-route, voice, off-route recalculation, and arrival — is in [`docs/Navigation.md`](Navigation.md).
 
-- `MKLocalSearchCompleter` for destination search  
-- `MKDirections` for driving route + steps → `NavStep`  
-- Tracks distance to next maneuver, remaining distance, ETA  
-- Off-route ~**80 m** from polyline → recalculate (with cooldown)  
-- Callbacks `onRouteApplied` / `onRouteCleared` refresh weather  
+**Sources:** `Services/NavigationService.swift`, `Services/NavigationService+Guidance.swift`, `Services/NavigationRouteMath.swift`, `Domain/OffRouteGate.swift`
+
+- `MKLocalSearchCompleter` for destination search
+- `MKDirections` automobile route + steps → `NavStep`
+- Position is the closest point on the route line, biased by course
+- A real departure (wrong heading and about 50 m of travel) recalculates, with a 12 s cooldown
+- Callbacks `onRouteApplied` / `onRouteCleared` refresh weather
 
 **Voice:** `Services/NavigationVoicePrompt.swift` (`AVSpeechSynthesizer`, English `en-US` / enhanced English voices — MapKit step text is English).
 
-**UI:** top turn card + bottom chip in `RideTrackerView`; map polyline in `LiveRideMapView`.
+**UI:** top turn card + bottom chip in `RideMapOverlays`; map polyline in `LiveRideMapView`.
 
 ### Petrol
 
