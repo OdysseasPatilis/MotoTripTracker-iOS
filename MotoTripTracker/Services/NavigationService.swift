@@ -58,6 +58,8 @@ final class NavigationService {
     var lastRecalculateAt: Date = .distantPast
     var nearestRouteDistance: CLLocationDistance = 0
     var matchedRouteIndex: Int = 0
+    var matchedRouteBearing: CLLocationDirection = 0
+    var matchedAlongRoute: CLLocationDistance = 0
     var offRouteGate = OffRouteGate()
     var approachedStepID: UUID?
     var announcedStepID: UUID?
@@ -67,9 +69,7 @@ final class NavigationService {
     var onRouteApplied: (([CLLocationCoordinate2D], TimeInterval) -> Void)?
     var onRouteCleared: (() -> Void)?
 
-    /// How far from the planned polyline before we treat the rider as off-route.
-    static let offRouteThresholdMeters: CLLocationDistance = 80
-    /// Advance to the next step when within this distance of its end.
+    /// Advance to the next step when within this distance along the route of its end.
     static let stepAdvanceMeters: CLLocationDistance = 35
     /// Speak an approach prompt once when within this distance of the maneuver.
     static let approachAnnounceMeters: CLLocationDistance = 250
@@ -145,7 +145,10 @@ final class NavigationService {
     /// turn-by-turn step progress, off-route recalculation, and auto-arrival.
     func updateOrigin(
         _ coordinate: CLLocationCoordinate2D,
-        horizontalAccuracy: CLLocationAccuracy = 10
+        horizontalAccuracy: CLLocationAccuracy = 10,
+        course: CLLocationDirection = -1,
+        speed: CLLocationSpeed = -1,
+        timestamp: Date = Date()
     ) {
         origin = coordinate
         destinationSearch.updateRegion(center: coordinate)
@@ -156,12 +159,18 @@ final class NavigationService {
             computeRoute(isRecalculation: false, requestAlternates: true)
         }
         guard hasRoute else { return }
-        // A coarse fix is not a new street. Hold the last good match.
-        guard horizontalAccuracy >= 0, horizontalAccuracy <= OffRouteGate.accuracyCeiling else { return }
-        recomputeRemaining(from: coordinate)
+        // Invalid or hundred-metre fixes are not a position on a road.
+        guard horizontalAccuracy >= 0, horizontalAccuracy <= 100 else { return }
+        recomputeRemaining(from: coordinate, course: course, speed: speed)
         guard phase == .navigating else { return }
         advanceStepIfNeeded(from: coordinate)
-        checkOffRouteAndRecalculate(from: coordinate, horizontalAccuracy: horizontalAccuracy)
+        checkOffRouteAndRecalculate(
+            from: coordinate,
+            horizontalAccuracy: horizontalAccuracy,
+            course: course,
+            speed: speed,
+            timestamp: timestamp
+        )
         checkArrival(from: coordinate)
     }
 
@@ -262,6 +271,8 @@ final class NavigationService {
         navigationStartedAt = nil
         arrivalCandidateSince = nil
         matchedRouteIndex = 0
+        matchedRouteBearing = 0
+        matchedAlongRoute = 0
         offRouteGate.reset()
         isRouting = false
         isOffRoute = false

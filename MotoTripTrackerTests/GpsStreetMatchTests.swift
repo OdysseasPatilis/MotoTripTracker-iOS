@@ -95,43 +95,122 @@ struct OffRouteGateTests {
     @Test func singleSpikeDoesNotRecalculate() {
         var gate = OffRouteGate()
         let decision = gate.shouldRecalculate(
-            nearestDistance: 120,
-            threshold: 80,
+            crossTrack: 120,
             horizontalAccuracy: 8,
-            now: t0
+            course: 90,
+            routeBearing: 0,
+            speedMps: 12,
+            location: location(latitude: 37.98, speedMps: 12, course: 90, at: t0)
         )
         #expect(!decision)
     }
 
-    @Test func sustainedDepartureRecalculates() {
+    @Test func travelingOffWithADifferentHeadingRecalculates() {
         var gate = OffRouteGate()
-        let immediate = gate.shouldRecalculate(nearestDistance: 120, threshold: 80, horizontalAccuracy: 8, now: t0)
-        let early = gate.shouldRecalculate(nearestDistance: 130, threshold: 80, horizontalAccuracy: 8, now: t0.addingTimeInterval(3))
-        let committed = gate.shouldRecalculate(nearestDistance: 140, threshold: 80, horizontalAccuracy: 8, now: t0.addingTimeInterval(7))
-        #expect(!immediate)
-        #expect(!early)
-        #expect(committed)
+        let first = gate.shouldRecalculate(
+            crossTrack: 60,
+            horizontalAccuracy: 8,
+            course: 90,
+            routeBearing: 0,
+            speedMps: 12,
+            location: location(latitude: 37.9800, speedMps: 12, course: 90, at: t0)
+        )
+        let second = gate.shouldRecalculate(
+            crossTrack: 70,
+            horizontalAccuracy: 8,
+            course: 90,
+            routeBearing: 0,
+            speedMps: 12,
+            location: location(latitude: 37.9803, speedMps: 12, course: 90, at: t0.addingTimeInterval(2))
+        )
+        let third = gate.shouldRecalculate(
+            crossTrack: 80,
+            horizontalAccuracy: 8,
+            course: 90,
+            routeBearing: 0,
+            speedMps: 12,
+            location: location(latitude: 37.9806, speedMps: 12, course: 90, at: t0.addingTimeInterval(4))
+        )
+        #expect(!first)
+        #expect(!second)
+        #expect(third)
     }
 
-    @Test func returningToTheRouteCancelsThePendingRecalculation() {
+    @Test func sameHeadingLateralJitterDoesNotRecalculate() {
         var gate = OffRouteGate()
-        _ = gate.shouldRecalculate(nearestDistance: 120, threshold: 80, horizontalAccuracy: 8, now: t0)
-        _ = gate.shouldRecalculate(nearestDistance: 20, threshold: 80, horizontalAccuracy: 8, now: t0.addingTimeInterval(2))
-        let restarted = gate.shouldRecalculate(nearestDistance: 120, threshold: 80, horizontalAccuracy: 8, now: t0.addingTimeInterval(3))
+        var committed = false
+        for step in 0..<6 {
+            let decision = gate.shouldRecalculate(
+                crossTrack: 25,
+                horizontalAccuracy: 8,
+                course: 5,
+                routeBearing: 0,
+                speedMps: 15,
+                location: location(
+                    latitude: 37.9800 + Double(step) * 0.0004,
+                    speedMps: 15,
+                    course: 5,
+                    at: t0.addingTimeInterval(Double(step))
+                )
+            )
+            committed = committed || decision
+        }
+        #expect(!committed)
+    }
+
+    @Test func stoppedDriftDoesNotRecalculate() {
+        var gate = OffRouteGate()
+        let parked = location(latitude: 37.98, speedMps: 0, course: 90, at: t0)
+        var committed = false
+        for step in 0..<8 {
+            let decision = gate.shouldRecalculate(
+                crossTrack: 100,
+                horizontalAccuracy: 8,
+                course: 90,
+                routeBearing: 0,
+                speedMps: 0,
+                location: CLLocation(
+                    coordinate: parked.coordinate,
+                    altitude: 0,
+                    horizontalAccuracy: 8,
+                    verticalAccuracy: 5,
+                    course: 90,
+                    speed: 0,
+                    timestamp: t0.addingTimeInterval(Double(step))
+                )
+            )
+            committed = committed || decision
+        }
+        #expect(!committed)
+    }
+
+    @Test func returningToTheRouteCancelsThePendingDeparture() {
+        var gate = OffRouteGate()
+        _ = gate.shouldRecalculate(
+            crossTrack: 80,
+            horizontalAccuracy: 8,
+            course: 90,
+            routeBearing: 0,
+            speedMps: 12,
+            location: location(latitude: 37.9800, speedMps: 12, course: 90, at: t0)
+        )
+        _ = gate.shouldRecalculate(
+            crossTrack: 5,
+            horizontalAccuracy: 8,
+            course: 0,
+            routeBearing: 0,
+            speedMps: 12,
+            location: location(latitude: 37.9802, speedMps: 12, course: 0, at: t0.addingTimeInterval(2))
+        )
+        let restarted = gate.shouldRecalculate(
+            crossTrack: 80,
+            horizontalAccuracy: 8,
+            course: 90,
+            routeBearing: 0,
+            speedMps: 12,
+            location: location(latitude: 37.9804, speedMps: 12, course: 90, at: t0.addingTimeInterval(4))
+        )
         #expect(!restarted)
-    }
-
-    @Test func poorAccuracyDoesNotStartOrClearTheDwell() {
-        var gate = OffRouteGate()
-        let coarse = gate.shouldRecalculate(nearestDistance: 200, threshold: 80, horizontalAccuracy: 80, now: t0)
-        let started = gate.shouldRecalculate(nearestDistance: 120, threshold: 80, horizontalAccuracy: 10, now: t0.addingTimeInterval(1))
-        // A bad fix in the middle must not wipe the dwell that a good fix already started.
-        let ignored = gate.shouldRecalculate(nearestDistance: 10, threshold: 80, horizontalAccuracy: 90, now: t0.addingTimeInterval(2))
-        let committed = gate.shouldRecalculate(nearestDistance: 120, threshold: 80, horizontalAccuracy: 10, now: t0.addingTimeInterval(8))
-        #expect(!coarse)
-        #expect(!started)
-        #expect(!ignored)
-        #expect(committed)
     }
 }
 
@@ -162,6 +241,7 @@ private func location(
     latitude: Double,
     longitude: Double = 23.72,
     speedMps: Double,
+    course: CLLocationDirection = 0,
     at date: Date = t0
 ) -> CLLocation {
     CLLocation(
@@ -169,7 +249,7 @@ private func location(
         altitude: 0,
         horizontalAccuracy: 5,
         verticalAccuracy: 5,
-        course: 0,
+        course: course,
         speed: speedMps,
         timestamp: date
     )

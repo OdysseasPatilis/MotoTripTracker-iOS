@@ -72,6 +72,8 @@ extension NavigationService {
         approachedStepID = nil
         announcedStepID = nil
         matchedRouteIndex = 0
+        matchedRouteBearing = 0
+        matchedAlongRoute = 0
         offRouteGate.reset()
         isRouting = false
         isRecalculating = false
@@ -86,13 +88,21 @@ extension NavigationService {
         onRouteApplied?(coordinates, motoTravelTime)
     }
 
-    func recomputeRemaining(from coordinate: CLLocationCoordinate2D) {
+    func recomputeRemaining(
+        from coordinate: CLLocationCoordinate2D,
+        course: CLLocationDirection = -1,
+        speed: CLLocationSpeed = -1
+    ) {
         let progress = NavigationRouteMath.progress(
             at: coordinate,
             on: routeCoordinates,
-            nearIndex: matchedRouteIndex
+            nearIndex: matchedRouteIndex,
+            course: course,
+            speedMps: speed
         )
         matchedRouteIndex = progress.nearestIndex
+        matchedRouteBearing = progress.routeBearing
+        matchedAlongRoute = progress.alongRoute
         nearestRouteDistance = progress.nearestDistance
         distanceRemaining = progress.remaining
         if totalRouteDistance > 0, totalTravelTime > 0 {
@@ -107,27 +117,42 @@ extension NavigationService {
             return
         }
 
-        let toEnd = NavigationRouteMath.meters(from: coordinate, to: step.endCoordinate)
+        let toEnd = distanceAlongRoute(to: step, fallbackFrom: coordinate)
         distanceToNextManeuver = toEnd
         maybeAnnounceApproach(for: step, distanceMeters: toEnd)
 
-        let index = NavigationRouteMath.nextStepIndex(
-            from: coordinate,
-            steps: steps,
-            currentIndex: currentStepIndex,
-            advanceMeters: Self.stepAdvanceMeters
-        )
+        var index = currentStepIndex
+        while index < steps.count - 1 {
+            let along = distanceAlongRoute(to: steps[index], fallbackFrom: coordinate)
+            if along <= Self.stepAdvanceMeters {
+                index += 1
+                continue
+            }
+            break
+        }
 
         if index != currentStepIndex {
             currentStepIndex = index
             approachedStepID = nil
             if let next = currentStep {
-                distanceToNextManeuver = NavigationRouteMath.meters(from: coordinate, to: next.endCoordinate)
+                distanceToNextManeuver = distanceAlongRoute(to: next, fallbackFrom: coordinate)
                 AppLogger.navigation.info("Advanced to step \(index + 1)/\(self.steps.count): \(next.instruction, privacy: .public)")
                 announceStep(next)
             }
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
         }
+    }
+
+    /// Metres still to ride along the polyline to this maneuver, not the straight-line shortcut.
+    private func distanceAlongRoute(to step: NavStep, fallbackFrom coordinate: CLLocationCoordinate2D) -> CLLocationDistance {
+        if let stepAlong = NavigationRouteMath.alongRoute(
+            of: step.endCoordinate,
+            on: routeCoordinates,
+            notBefore: matchedRouteIndex
+        ) {
+            return max(0, stepAlong - matchedAlongRoute)
+        }
+        return NavigationRouteMath.meters(from: coordinate, to: step.endCoordinate)
     }
 
     func maybeAnnounceApproach(for step: NavStep, distanceMeters: CLLocationDistance) {
@@ -146,15 +171,29 @@ extension NavigationService {
 
     func checkOffRouteAndRecalculate(
         from coordinate: CLLocationCoordinate2D,
-        horizontalAccuracy: CLLocationAccuracy
+        horizontalAccuracy: CLLocationAccuracy,
+        course: CLLocationDirection,
+        speed: CLLocationSpeed,
+        timestamp: Date
     ) {
         guard hasDestination, hasRoute, !isRouting, !isRecalculating else { return }
 
-        let commit = offRouteGate.shouldRecalculate(
-            nearestDistance: nearestRouteDistance,
-            threshold: Self.offRouteThresholdMeters,
+        let sample = CLLocation(
+            coordinate: coordinate,
+            altitude: 0,
             horizontalAccuracy: horizontalAccuracy,
-            now: Date()
+            verticalAccuracy: -1,
+            course: course,
+            speed: speed,
+            timestamp: timestamp
+        )
+        let commit = offRouteGate.shouldRecalculate(
+            crossTrack: nearestRouteDistance,
+            horizontalAccuracy: horizontalAccuracy,
+            course: course,
+            routeBearing: matchedRouteBearing,
+            speedMps: speed,
+            location: sample
         )
         if commit {
             isOffRoute = true
@@ -165,7 +204,7 @@ extension NavigationService {
                 "Off route (\(Int(self.nearestRouteDistance))m) — recalculating"
             )
             computeRoute(isRecalculation: true)
-        } else if nearestRouteDistance <= Self.offRouteThresholdMeters / 2 {
+        } else if !offRouteGate.isDiverging {
             isOffRoute = false
         }
     }
