@@ -106,6 +106,37 @@ struct NavigationRouteMathTests {
         #expect(NavigationRouteMath.formatDistance(1500) == "1.5 km")
     }
 
+    @Test func remainingIsMeasuredAlongTheSegmentNotToTheNearestCorner() {
+        let route = [start, end]
+        let east = 20 / (111_320 * cos(start.latitude * .pi / 180))
+        let beside = CLLocationCoordinate2D(latitude: mid.latitude, longitude: mid.longitude + east)
+        let progress = NavigationRouteMath.progress(at: beside, on: route)
+        let full = distance(from: start, to: end)
+        #expect(progress.nearestDistance > 10)
+        #expect(progress.nearestDistance < 35)
+        #expect(abs(progress.remaining - full / 2) < 30)
+    }
+
+    @Test func headingKeepsTheMatchOnTheRoadBeingRidden() {
+        let northboundStart = start
+        let northboundEnd = end
+        let east = 0.00050
+        let southboundStart = CLLocationCoordinate2D(latitude: end.latitude, longitude: end.longitude + east)
+        let southboundEnd = CLLocationCoordinate2D(latitude: start.latitude, longitude: start.longitude + east)
+        let route = [northboundStart, northboundEnd, southboundStart, southboundEnd]
+        let besideOppositeRoad = CLLocationCoordinate2D(
+            latitude: mid.latitude,
+            longitude: mid.longitude + east - 0.00008
+        )
+        let progress = NavigationRouteMath.progress(
+            at: besideOppositeRoad,
+            on: route,
+            course: 0,
+            speedMps: 12
+        )
+        #expect(progress.nearestIndex <= 1)
+    }
+
     private func distance(from a: CLLocationCoordinate2D, to b: CLLocationCoordinate2D) -> CLLocationDistance {
         CLLocation(latitude: a.latitude, longitude: a.longitude)
             .distance(from: CLLocation(latitude: b.latitude, longitude: b.longitude))
