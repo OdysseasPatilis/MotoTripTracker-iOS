@@ -144,53 +144,69 @@ struct RideMapTopOverlay: View {
     }
 
     private var navigationHeader: some View {
-        HStack(alignment: .center, spacing: 8) {
-            Button {
-                app.navigationService.returnToPreview()
-            } label: {
-                Image(systemName: "chevron.left")
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(NavigationHUDChrome.value)
-                    .frame(width: 28, height: 28)
-                    .background(NavigationHUDChrome.chip, in: Circle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Back to route preview")
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .center, spacing: 8) {
+                Button {
+                    app.navigationService.returnToPreview()
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(NavigationHUDChrome.value)
+                        .frame(width: 28, height: 28)
+                        .background(NavigationHUDChrome.chip, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Back to route preview")
 
-            navigationTurnChip
-            Spacer(minLength: 6)
-            if gpsQuality == .poor {
-                Image(systemName: "location.slash.fill")
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(colors.neonRed)
-                    .frame(width: 28, height: 28)
-                    .background(NavigationHUDChrome.chip, in: Circle())
-                    .accessibilityLabel("Weak GPS")
+                Spacer(minLength: 6)
+                if gpsQuality == .poor {
+                    Image(systemName: "location.slash.fill")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(colors.neonRed)
+                        .frame(width: 28, height: 28)
+                        .background(NavigationHUDChrome.chip, in: Circle())
+                        .accessibilityLabel("Weak GPS")
+                }
+                if session.isActive, !app.locationService.hasAlwaysAuthorization {
+                    alwaysLocationIconButton
+                }
+                navigationToolsMenu
+                fuelRangePill
             }
-            if session.isActive, !app.locationService.hasAlwaysAuthorization {
-                alwaysLocationIconButton
-            }
-            navigationToolsMenu
-            fuelRangePill
+
+            navigationTurnBanner
         }
         .padding(.horizontal, 12)
         .padding(.top, 8)
     }
 
-    private var navigationTurnChip: some View {
+    private var navigationTurnBanner: some View {
         let nav = app.navigationService
-        return HStack(spacing: 6) {
+        let content = bannerContent(for: nav)
+        return HStack(spacing: 12) {
             Image(systemName: chipSymbol(for: nav))
-                .font(.system(size: 13, weight: .bold))
-            Text(chipText(for: nav))
-                .font(.system(size: 13, weight: .semibold))
-                .lineLimit(1)
-                .truncationMode(.tail)
+                .font(.system(size: 30, weight: .bold))
+                .frame(width: 48, height: 48)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(content.primary)
+                    .font(.system(size: content.secondary == nil ? 26 : 32, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                if let secondary = content.secondary {
+                    Text(secondary)
+                        .font(.system(size: 18, weight: .semibold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
+            }
+            Spacer(minLength: 0)
         }
         .foregroundStyle(NavigationHUDChrome.value)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(NavigationHUDChrome.chip, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(NavigationHUDChrome.chip, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(chipAccessibility(for: nav))
     }
@@ -290,17 +306,17 @@ struct RideMapTopOverlay: View {
         .accessibilityLabel("Navigation options")
     }
 
-    private func chipText(for nav: NavigationService) -> String {
-        if nav.isRecalculating { return "Recalculating" }
-        if nav.isOffRoute { return "Off route" }
+    private func bannerContent(for nav: NavigationService) -> (primary: String, secondary: String?) {
+        if nav.isRecalculating { return ("Recalculating", nil) }
+        if nav.isOffRoute { return ("Off route", nil) }
         if let step = nav.currentStep {
-            return NavigationCueFormatting.chipText(
-                distanceMeters: nav.distanceToNextManeuver,
-                instruction: step.instruction
-            )
+            let street = NavigationCueFormatting.compactLabel(from: step.instruction, limit: 36)
+            let distance = NavigationService.formatDistance(nav.distanceToNextManeuver)
+            if street.isEmpty { return (distance, nil) }
+            return (distance, street)
         }
-        if nav.isRouting { return "Calculating" }
-        return nav.destinationName ?? "Destination"
+        if nav.isRouting { return ("Calculating", nil) }
+        return (nav.destinationName ?? "Destination", nil)
     }
 
     private func chipAccessibility(for nav: NavigationService) -> String {

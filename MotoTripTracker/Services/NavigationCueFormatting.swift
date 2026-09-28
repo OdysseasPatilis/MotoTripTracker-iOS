@@ -12,12 +12,12 @@ enum NavigationCueFormatting {
     }
 
     /// Short street name when the instruction names one, otherwise a one-word maneuver.
-    static func compactLabel(from instruction: String) -> String {
+    static func compactLabel(from instruction: String, limit: Int = 22) -> String {
         let trimmed = instruction.trimmingCharacters(in: .whitespacesAndNewlines)
         if let street = streetName(in: trimmed) {
-            return clipped(street, limit: 22)
+            return clipped(street, limit: limit)
         }
-        return clipped(fallbackManeuver(from: trimmed), limit: 22)
+        return clipped(fallbackManeuver(from: trimmed), limit: limit)
     }
 
     /// Remaining moto ETA for the slim bar. "--" when guidance has no arrival time.
