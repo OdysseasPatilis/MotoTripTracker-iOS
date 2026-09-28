@@ -36,7 +36,13 @@ struct LiveRideMapView: View {
         let destination = navigation.destinationCoordinate
         let previewItems = Self.previewPolylineItems(from: navigation)
         let showRecenter = !isFollowingUser && navigation.phase != .previewing
-        let bottomChromePadding: CGFloat = selectedPlace == nil ? 100 : 250
+        let showsGlanceDial = navigation.isNavigating && selectedPlace == nil
+        let bottomChromePadding: CGFloat = {
+            if selectedPlace != nil { return 250 }
+            if showsGlanceDial { return 230 }
+            return 100
+        }()
+        let routeColor = navigation.isNavigating ? NavigationHUDChrome.route : colors.neonBlue
 
         Map(position: $cameraPosition, selection: $mapSelection) {
             UserAnnotation()
@@ -44,8 +50,9 @@ struct LiveRideMapView: View {
                 previewItems: previewItems,
                 activeRoute: navigation.phase == .previewing ? [] : navigation.routeCoordinates,
                 traveled: traveled,
-                routeColor: colors.neonBlue,
-                trailColor: colors.mint
+                routeColor: routeColor,
+                trailColor: colors.mint,
+                glowRoute: navigation.isNavigating
             )
             if let destination {
                 destinationAnnotation(coordinate: destination, color: colors.neonBlue)
@@ -67,10 +74,23 @@ struct LiveRideMapView: View {
             feature.kind != .pointOfInterest
         }
         .mapControls {
-            MapCompass()
+            if !navigation.isNavigating {
+                MapCompass()
+            }
         }
         .overlay(alignment: .bottom) {
-            if let selectedPlace {
+            if showsGlanceDial {
+                NavigationInstrumentCluster(
+                    speedKmh: app.tripManager.sessionState.stats.speed,
+                    speedLimitKmh: app.speedLimitService.effectiveLimitKmh,
+                    trafficHint: navigation.trafficHintText,
+                    overLimitColor: colors.stopRed,
+                    hintColor: colors.routeAmber
+                )
+                .padding(.bottom, 8)
+                .allowsHitTesting(false)
+                .transition(.opacity)
+            } else if let selectedPlace {
                 LiveRideMapPlaceCard(
                     place: selectedPlace,
                     colors: colors,
@@ -282,7 +302,8 @@ struct LiveRideMapView: View {
         activeRoute: [CLLocationCoordinate2D],
         traveled: [CLLocationCoordinate2D],
         routeColor: Color,
-        trailColor: Color
+        trailColor: Color,
+        glowRoute: Bool
     ) -> some MapContent {
         ForEach(previewItems) { item in
             MapPolyline(coordinates: item.coordinates)
@@ -297,10 +318,17 @@ struct LiveRideMapView: View {
         }
 
         if previewItems.isEmpty, activeRoute.count > 1 {
+            if glowRoute {
+                MapPolyline(coordinates: activeRoute)
+                    .stroke(
+                        routeColor.opacity(0.38),
+                        style: StrokeStyle(lineWidth: 14, lineCap: .round, lineJoin: .round)
+                    )
+            }
             MapPolyline(coordinates: activeRoute)
                 .stroke(
                     routeColor,
-                    style: StrokeStyle(lineWidth: 6, lineCap: .round, lineJoin: .round)
+                    style: StrokeStyle(lineWidth: glowRoute ? 5 : 6, lineCap: .round, lineJoin: .round)
                 )
         }
 
@@ -364,11 +392,13 @@ struct LiveRideMapView: View {
             let navigation = app.navigationService
             let isNavigating = navigation.isNavigating
             let heading = location.course >= 0 ? location.course : 0
+            let glanceDialVisible = isNavigating && selectedPlace == nil
             let center = RideFollowCameraPolicy.centerCoordinate(
                 rider: location.coordinate,
                 courseDegrees: location.course,
                 speedKmh: speedKmh,
-                isNavigating: isNavigating
+                isNavigating: isNavigating,
+                keepsRiderAboveBottomChrome: glanceDialVisible
             )
             let distance = RideFollowCameraPolicy.cameraDistanceMeters(
                 speedKmh: speedKmh,

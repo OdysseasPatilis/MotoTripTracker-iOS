@@ -195,6 +195,8 @@ struct OverLimitScreenFlash: View {
 struct SpeedLimitSign: View {
     let limitKmh: Int
     let isOverLimit: Bool
+    /// Drawn size. The ride-panel sign stays at 54; the glance HUD passes a similar badge.
+    var diameter: CGFloat = 54
 
     var body: some View {
         Group {
@@ -214,23 +216,186 @@ struct SpeedLimitSign: View {
     }
 
     private func badge(fill: Color, ring: Color, number: Color, glowing: Bool) -> some View {
+        let scale = diameter / 54
         ZStack {
             Circle()
                 .fill(fill)
                 .shadow(
                     color: glowing ? fill.opacity(0.55) : .black.opacity(0.25),
-                    radius: glowing ? 8 : 3,
+                    radius: glowing ? 8 * scale : 3 * scale,
                     y: 1
                 )
             Circle()
-                .stroke(ring, lineWidth: 5.5)
+                .stroke(ring, lineWidth: 5.5 * scale)
             Text("\(limitKmh)")
-                .font(.system(size: limitKmh >= 100 ? 18 : 22, weight: .bold, design: .rounded))
+                .font(.system(size: (limitKmh >= 100 ? 18 : 22) * scale, weight: .bold, design: .rounded))
                 .foregroundStyle(number)
                 .minimumScaleFactor(0.7)
                 .lineLimit(1)
         }
-        .frame(width: 54, height: 54)
+        .frame(width: diameter, height: diameter)
+    }
+}
+
+/// Fixed dark chrome for the navigation glance HUD so it stays readable in either theme.
+enum NavigationHUDChrome {
+    static let scrim = Color(hex: 0x07090C)
+    static let chip = Color.black.opacity(0.62)
+    static let dialFace = Color(hex: 0x070B10).opacity(0.88)
+    static let label = Color.white.opacity(0.62)
+    static let value = Color.white
+    static let pauseFill = Color.white.opacity(0.16)
+    static let stopFill = Color(hex: 0x14635C)
+    static let startFill = Color(hex: 0x00E5A0)
+    static let route = Color(hex: 0x2EE6C8)
+    static let fuelFlame = Color(hex: 0xFF9A1F)
+    static let hairline = Color.white.opacity(0.14)
+}
+
+/// Needle dial for active navigation. Tick marks stay; scale numerals do not.
+struct GlanceSpeedometerDial: View {
+    let speedKmh: Double
+    var speedLimitKmh: Int
+    var overLimitColor: Color
+
+    private var isOverLimit: Bool { speedKmh > Double(speedLimitKmh) }
+
+    var body: some View {
+        ZStack {
+            GlanceSpeedometerFace(
+                speedKmh: speedKmh,
+                speedLimitKmh: Double(speedLimitKmh),
+                overLimitColor: overLimitColor
+            )
+
+            VStack(spacing: -1) {
+                Text("\(Int(speedKmh))")
+                    .font(.system(size: 42, weight: .bold, design: .rounded))
+                    .foregroundStyle(isOverLimit ? overLimitColor : NavigationHUDChrome.value)
+                    .monospacedDigit()
+                    .contentTransition(.numericText())
+                Text("km/h")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(NavigationHUDChrome.label)
+            }
+            .offset(y: 28)
+            .allowsHitTesting(false)
+        }
+        .frame(width: 164, height: 164)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(Int(speedKmh)) kilometers per hour")
+    }
+}
+
+/// Analog face: ring, unlabeled ticks, needle. Full scale is 160 km/h; the digits show true speed.
+private struct GlanceSpeedometerFace: View {
+    var speedKmh: Double
+    var speedLimitKmh: Double
+    var overLimitColor: Color
+
+    private static let fullScaleKmh = 160.0
+    private static let startDegrees = 135.0
+    private static let sweepDegrees = 270.0
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(NavigationHUDChrome.dialFace)
+                .shadow(color: .black.opacity(0.45), radius: 14, y: 6)
+            tickAndNeedle
+        }
+    }
+
+    private var tickAndNeedle: some View {
+        Canvas { context, size in
+            let center = CGPoint(x: size.width / 2, y: size.height / 2)
+            let radius = min(size.width, size.height) / 2 - 1
+
+            let face = Path(ellipseIn: CGRect(
+                x: center.x - radius,
+                y: center.y - radius,
+                width: radius * 2,
+                height: radius * 2
+            ))
+            context.stroke(face, with: .color(Color.white.opacity(0.28)), lineWidth: 1.5)
+
+            let steps = 16
+            for index in 0...steps {
+                let isMajor = index.isMultiple(of: 2)
+                let fraction = Double(index) / Double(steps)
+                let angle = (Self.startDegrees + Self.sweepDegrees * fraction) * .pi / 180
+                let outer = radius - 10
+                let inner = outer - (isMajor ? 12 : 6)
+                var tick = Path()
+                tick.move(to: CGPoint(
+                    x: center.x + outer * cos(angle),
+                    y: center.y + outer * sin(angle)
+                ))
+                tick.addLine(to: CGPoint(
+                    x: center.x + inner * cos(angle),
+                    y: center.y + inner * sin(angle)
+                ))
+                context.stroke(
+                    tick,
+                    with: .color(Color.white.opacity(isMajor ? 0.92 : 0.4)),
+                    style: StrokeStyle(lineWidth: isMajor ? 1.7 : 1, lineCap: .round)
+                )
+            }
+
+            let fraction = min(max(speedKmh / Self.fullScaleKmh, 0), 1)
+            let needleAngle = (Self.startDegrees + Self.sweepDegrees * fraction) * .pi / 180
+            let tipLength = radius - 26
+            let tip = CGPoint(
+                x: center.x + tipLength * cos(needleAngle),
+                y: center.y + tipLength * sin(needleAngle)
+            )
+            var needle = Path()
+            needle.move(to: center)
+            needle.addLine(to: tip)
+            let needleColor = speedKmh > speedLimitKmh ? overLimitColor : Color.white
+            context.stroke(needle, with: .color(needleColor), style: StrokeStyle(lineWidth: 2.6, lineCap: .round))
+
+            let hub = Path(ellipseIn: CGRect(x: center.x - 4.5, y: center.y - 4.5, width: 9, height: 9))
+            context.fill(hub, with: .color(needleColor))
+        }
+    }
+}
+
+/// Speed dial and limit badge floating on the lower map during guidance.
+struct NavigationInstrumentCluster: View {
+    let speedKmh: Double
+    let speedLimitKmh: Int
+    var trafficHint: String?
+    var overLimitColor: Color
+    var hintColor: Color
+
+    var body: some View {
+        VStack(spacing: 8) {
+            if let trafficHint {
+                Text(trafficHint)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(hintColor)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(NavigationHUDChrome.chip, in: Capsule())
+            }
+
+            ZStack {
+                GlanceSpeedometerDial(
+                    speedKmh: speedKmh,
+                    speedLimitKmh: speedLimitKmh,
+                    overLimitColor: overLimitColor
+                )
+                SpeedLimitSign(
+                    limitKmh: speedLimitKmh,
+                    isOverLimit: speedKmh > Double(speedLimitKmh),
+                    diameter: 58
+                )
+                .offset(x: 86, y: 28)
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .frame(maxWidth: .infinity)
     }
 }
 

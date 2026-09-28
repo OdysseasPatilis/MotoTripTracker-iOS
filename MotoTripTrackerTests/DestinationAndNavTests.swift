@@ -3,6 +3,49 @@ import Foundation
 import Testing
 @testable import MotoTripTracker
 
+struct NavigationCueFormattingTests {
+    @Test func chipUsesDistanceAndStreet() {
+        let text = NavigationCueFormatting.chipText(
+            distanceMeters: 120,
+            instruction: "Turn left onto Ermou"
+        )
+        #expect(text == "120 m Ermou")
+    }
+
+    @Test func compactLabelPrefersTheStreetAfterOntoOrOn() {
+        #expect(NavigationCueFormatting.compactLabel(from: "Turn right onto Athinas") == "Athinas")
+        #expect(NavigationCueFormatting.compactLabel(from: "Keep left to stay on Panepistimiou") == "Panepistimiou")
+        #expect(
+            NavigationCueFormatting.compactLabel(from: "Continue on Ermou for 2 kilometers") == "Ermou"
+        )
+        #expect(
+            NavigationCueFormatting.compactLabel(from: "At the roundabout, take the 2nd exit onto Leoforos Athinon")
+            == "Leoforos Athinon"
+        )
+    }
+
+    @Test func compactLabelFallsBackToAShortManeuver() {
+        #expect(NavigationCueFormatting.compactLabel(from: "Turn left") == "Left")
+        #expect(NavigationCueFormatting.compactLabel(from: "Make a U-turn") == "U-turn")
+        #expect(NavigationCueFormatting.compactLabel(from: "Arrive at destination") == "Destination")
+        #expect(NavigationCueFormatting.compactLabel(from: "Continue straight") == "Straight")
+    }
+
+    @Test func remainingTimeLabel() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        #expect(NavigationCueFormatting.remainingTimeLabel(until: nil, now: now) == "--")
+        #expect(
+            NavigationCueFormatting.remainingTimeLabel(until: now.addingTimeInterval(18 * 60), now: now) == "18 min"
+        )
+        #expect(
+            NavigationCueFormatting.remainingTimeLabel(until: now.addingTimeInterval(20), now: now) == "now"
+        )
+        #expect(
+            NavigationCueFormatting.remainingTimeLabel(until: now.addingTimeInterval(90 * 60), now: now) == "1h 30m"
+        )
+    }
+}
+
 struct DestinationAndNavTests {
 
     @Test func destinationHistoryAddsNewestFirstAndCapsAt20() {
