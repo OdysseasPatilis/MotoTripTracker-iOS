@@ -252,7 +252,7 @@ enum NavigationHUDChrome {
     static let hairline = Color.white.opacity(0.14)
 }
 
-/// Needle dial for active navigation. Tick marks stay; scale numerals do not.
+/// Tick-mark dial for active navigation. The digits show speed; there is no needle.
 struct GlanceSpeedometerDial: View {
     let speedKmh: Double
     var speedLimitKmh: Int
@@ -262,11 +262,7 @@ struct GlanceSpeedometerDial: View {
 
     var body: some View {
         ZStack {
-            GlanceSpeedometerFace(
-                speedKmh: speedKmh,
-                speedLimitKmh: Double(speedLimitKmh),
-                overLimitColor: overLimitColor
-            )
+            GlanceSpeedometerFace()
 
             VStack(spacing: -1) {
                 Text("\(Int(speedKmh))")
@@ -287,13 +283,8 @@ struct GlanceSpeedometerDial: View {
     }
 }
 
-/// Analog face: ring, unlabeled ticks, needle. Full scale is 160 km/h; the digits show true speed.
+/// Analog face: ring and unlabeled ticks. The digits in front show true speed.
 private struct GlanceSpeedometerFace: View {
-    var speedKmh: Double
-    var speedLimitKmh: Double
-    var overLimitColor: Color
-
-    private static let fullScaleKmh = 160.0
     private static let startDegrees = 135.0
     private static let sweepDegrees = 270.0
 
@@ -302,11 +293,11 @@ private struct GlanceSpeedometerFace: View {
             Circle()
                 .fill(NavigationHUDChrome.dialFace)
                 .shadow(color: .black.opacity(0.45), radius: 14, y: 6)
-            tickAndNeedle
+            ticks
         }
     }
 
-    private var tickAndNeedle: some View {
+    private var ticks: some View {
         Canvas { context, size in
             let center = CGPoint(x: size.width / 2, y: size.height / 2)
             let radius = min(size.width, size.height) / 2 - 1
@@ -341,22 +332,6 @@ private struct GlanceSpeedometerFace: View {
                     style: StrokeStyle(lineWidth: isMajor ? 1.7 : 1, lineCap: .round)
                 )
             }
-
-            let fraction = min(max(speedKmh / Self.fullScaleKmh, 0), 1)
-            let needleAngle = (Self.startDegrees + Self.sweepDegrees * fraction) * .pi / 180
-            let tipLength = radius - 26
-            let tip = CGPoint(
-                x: center.x + tipLength * cos(needleAngle),
-                y: center.y + tipLength * sin(needleAngle)
-            )
-            var needle = Path()
-            needle.move(to: center)
-            needle.addLine(to: tip)
-            let needleColor = speedKmh > speedLimitKmh ? overLimitColor : Color.white
-            context.stroke(needle, with: .color(needleColor), style: StrokeStyle(lineWidth: 2.6, lineCap: .round))
-
-            let hub = Path(ellipseIn: CGRect(x: center.x - 4.5, y: center.y - 4.5, width: 9, height: 9))
-            context.fill(hub, with: .color(needleColor))
         }
     }
 }
