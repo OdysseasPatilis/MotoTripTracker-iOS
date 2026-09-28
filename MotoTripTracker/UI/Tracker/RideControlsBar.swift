@@ -68,7 +68,7 @@ struct RideControlsBar: View {
     }
 }
 
-/// Slim Dist / Avg / ETA strip plus compact ride controls, used only while guiding.
+/// Dist / Avg / Left strip plus compact ride controls, used only while guiding.
 struct NavigationGlanceBar: View {
     @Environment(AppContainer.self) private var app
     let session: RideSessionState
@@ -83,7 +83,7 @@ struct NavigationGlanceBar: View {
                 hairline
                 metric(icon: "gauge.with.dots.needle.33percent", title: "Avg", value: averageText)
                 hairline
-                metric(icon: "clock", title: "ETA", value: etaText)
+                metric(icon: "clock", title: "Left", value: etaText)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
