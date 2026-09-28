@@ -145,6 +145,18 @@ struct RideMapTopOverlay: View {
 
     private var navigationHeader: some View {
         HStack(alignment: .center, spacing: 8) {
+            Button {
+                app.navigationService.returnToPreview()
+            } label: {
+                Image(systemName: "chevron.left")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(NavigationHUDChrome.value)
+                    .frame(width: 28, height: 28)
+                    .background(NavigationHUDChrome.chip, in: Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Back to route preview")
+
             navigationTurnChip
             Spacer(minLength: 6)
             if gpsQuality == .poor {

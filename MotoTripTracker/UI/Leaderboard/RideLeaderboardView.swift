@@ -143,6 +143,7 @@ struct RideLeaderboardView: View {
         .background(colors.bgDeep.ignoresSafeArea())
         .navigationTitle("Leaderboard")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.visible, for: .navigationBar)
     }
 }
 

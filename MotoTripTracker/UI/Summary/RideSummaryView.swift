@@ -131,6 +131,7 @@ struct RideSummaryView: View {
         .background(colors.bgDeep.ignoresSafeArea())
         .navigationTitle("Summary")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.visible, for: .navigationBar)
         .toolbar {
             if let trip {
                 ToolbarItemGroup(placement: .topBarTrailing) {

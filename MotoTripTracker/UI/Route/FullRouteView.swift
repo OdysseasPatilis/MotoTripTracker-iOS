@@ -124,6 +124,7 @@ struct FullRouteView: View {
         }
         .navigationTitle("Route")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.visible, for: .navigationBar)
         .onAppear {
             applyRouteDisplay()
             Task {

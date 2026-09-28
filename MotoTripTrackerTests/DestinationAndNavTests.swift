@@ -125,6 +125,35 @@ struct DestinationAndNavTests {
         #expect(names == ["Keep"])
     }
 
+    @Test @MainActor func returnToPreviewKeepsTheDestination() {
+        let service = NavigationService()
+        let destination = CLLocationCoordinate2D(latitude: 37.9838, longitude: 23.7275)
+        service.beginPreview(coordinate: destination, name: "Ermou")
+        let option = NavRouteOption(
+            id: UUID(),
+            coordinates: [
+                destination,
+                CLLocationCoordinate2D(latitude: 37.99, longitude: 23.74)
+            ],
+            distanceMeters: 1_200,
+            expectedTravelTime: 600,
+            motoTravelTime: 500,
+            trafficDelay: 100,
+            steps: []
+        )
+        service.previewRoutes = [option]
+        service.selectedRouteID = option.id
+        service.confirmStartNavigation()
+
+        #expect(service.isNavigating)
+
+        service.returnToPreview()
+
+        #expect(service.isPreviewing)
+        #expect(service.destinationName == "Ermou")
+        #expect(service.previewRoutes.count == 1)
+    }
+
     @Test @MainActor func routePreviewWaitsForGpsThenRetries() {
         let service = NavigationService()
         let destination = CLLocationCoordinate2D(latitude: 37.9838, longitude: 23.7275)
