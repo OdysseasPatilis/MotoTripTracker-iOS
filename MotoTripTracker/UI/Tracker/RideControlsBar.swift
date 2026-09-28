@@ -68,7 +68,7 @@ struct RideControlsBar: View {
     }
 }
 
-/// Dist / Avg / Left strip plus compact ride controls, used only while guiding.
+/// Dist / Avg / Left strip plus ride controls, used only while guiding.
 struct NavigationGlanceBar: View {
     @Environment(AppContainer.self) private var app
     let session: RideSessionState
@@ -77,7 +77,7 @@ struct NavigationGlanceBar: View {
     private var stats: TripStats { session.stats }
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
             HStack(spacing: 0) {
                 metric(icon: "motorcycle", title: "Dist", value: distanceText)
                 hairline
@@ -89,10 +89,10 @@ struct NavigationGlanceBar: View {
 
             rideButtons
         }
-        .padding(.leading, 6)
-        .padding(.trailing, 10)
-        .padding(.top, 7)
-        .padding(.bottom, 6)
+        .padding(.leading, 10)
+        .padding(.trailing, 12)
+        .padding(.top, 12)
+        .padding(.bottom, 10)
         .background(NavigationHUDChrome.scrim.ignoresSafeArea(edges: .bottom))
         .overlay(alignment: .top) {
             Rectangle()
@@ -116,31 +116,31 @@ struct NavigationGlanceBar: View {
     }
 
     private func metric(icon: String, title: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 1) {
-            HStack(spacing: 3) {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 4) {
                 Image(systemName: icon)
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
                     .accessibilityHidden(true)
                 Text(title)
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
             }
             .foregroundStyle(NavigationHUDChrome.label)
             Text(value)
-                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                .font(.system(size: 22, weight: .bold, design: .rounded))
                 .foregroundStyle(NavigationHUDChrome.value)
                 .monospacedDigit()
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 4)
+        .padding(.horizontal, 6)
         .accessibilityElement(children: .combine)
     }
 
     private var hairline: some View {
         Rectangle()
             .fill(NavigationHUDChrome.hairline)
-            .frame(width: 1, height: 26)
+            .frame(width: 1, height: 40)
     }
 
     @ViewBuilder
@@ -186,13 +186,13 @@ struct NavigationGlanceBar: View {
     ) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.subheadline.weight(.semibold))
+                .font(.headline.weight(.semibold))
                 .foregroundStyle(foreground)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
-                .frame(minWidth: 72, minHeight: 38)
-                .padding(.horizontal, 8)
-                .background(fill, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                .frame(minWidth: 84, minHeight: 52)
+                .padding(.horizontal, 10)
+                .background(fill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .buttonStyle(.plain)
     }
