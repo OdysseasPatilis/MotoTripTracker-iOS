@@ -29,6 +29,16 @@ struct LiveRideMapView: View {
         return session.isActive && !session.isPaused
     }
 
+    /// Smoothed trip speed once a ride is recording. Before Start, TripManager
+    /// publishes 0, so the dial uses the live GPS speed instead.
+    private var glanceSpeedKmh: Double {
+        if isRiding {
+            return app.tripManager.sessionState.stats.speed
+        }
+        guard let speed = app.locationService.lastLocation?.speed, speed >= 0 else { return 0 }
+        return speed * 3.6
+    }
+
     var body: some View {
         let colors = theme.palette
         let navigation = app.navigationService
@@ -81,7 +91,7 @@ struct LiveRideMapView: View {
         .overlay(alignment: .bottom) {
             if showsGlanceDial {
                 NavigationInstrumentCluster(
-                    speedKmh: app.tripManager.sessionState.stats.speed,
+                    speedKmh: glanceSpeedKmh,
                     speedLimitKmh: app.speedLimitService.effectiveLimitKmh,
                     trafficHint: navigation.trafficHintText,
                     overLimitColor: colors.stopRed,
