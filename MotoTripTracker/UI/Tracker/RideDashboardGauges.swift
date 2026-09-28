@@ -217,7 +217,7 @@ struct SpeedLimitSign: View {
 
     private func badge(fill: Color, ring: Color, number: Color, glowing: Bool) -> some View {
         let scale = diameter / 54
-        ZStack {
+        return ZStack {
             Circle()
                 .fill(fill)
                 .shadow(
