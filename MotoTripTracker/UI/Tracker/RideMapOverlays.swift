@@ -146,7 +146,6 @@ struct RideMapTopOverlay: View {
     private var navigationHeader: some View {
         HStack(alignment: .center, spacing: 8) {
             navigationTurnChip
-                .layoutPriority(-1)
             Spacer(minLength: 6)
             if gpsQuality == .poor {
                 Image(systemName: "location.slash.fill")
@@ -194,16 +193,18 @@ struct RideMapTopOverlay: View {
                 Image(systemName: "flame.fill")
                     .font(.caption2.weight(.bold))
                     .foregroundStyle(NavigationHUDChrome.fuelFlame)
-                Text("Fuel Range \(kilometers) km")
+                Text("\(kilometers) km")
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(fuel.isLowFuel ? colors.neonRed : NavigationHUDChrome.value)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.7)
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
             .background(NavigationHUDChrome.chip, in: Capsule())
         }
         .buttonStyle(.plain)
+        .layoutPriority(-1)
         .accessibilityLabel("Fuel range \(kilometers) kilometers")
     }
 
