@@ -240,6 +240,22 @@ final class NavigationService {
         clear()
     }
 
+    /// Leaves active guidance and returns to the route preview, keeping the destination.
+    func returnToPreview() {
+        guard phase == .navigating else { return }
+        voice.stop()
+        isOffRoute = false
+        isRecalculating = false
+        offRouteGate.reset()
+        navigationStartedAt = nil
+        arrivalCandidateSince = nil
+        approachedStepID = nil
+        announcedStepID = nil
+        phase = .previewing
+        guard previewRoutes.isEmpty, destinationCoordinate != nil else { return }
+        computeRoute(isRecalculation: false, requestAlternates: true)
+    }
+
     func openInAppleMaps() {
         guard let destinationCoordinate else { return }
         let item = MapKitPlace.mapItem(coordinate: destinationCoordinate, name: destinationName)

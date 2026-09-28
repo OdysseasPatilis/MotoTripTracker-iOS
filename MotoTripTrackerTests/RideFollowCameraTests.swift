@@ -17,6 +17,13 @@ struct RideFollowCameraTests {
         let fastNav = RideFollowCameraPolicy.lookAheadMeters(speedKmh: 100, isNavigating: true)
         #expect(fast > slow)
         #expect(fastNav > fast)
+        let aboveDial = RideFollowCameraPolicy.lookAheadMeters(
+            speedKmh: 100,
+            isNavigating: true,
+            keepsRiderAboveBottomChrome: true
+        )
+        #expect(aboveDial < fastNav)
+        #expect(aboveDial > 0)
     }
 
     @Test func rideFollowCameraCenterUsesCourseWhenValid() {

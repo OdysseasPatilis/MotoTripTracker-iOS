@@ -3,6 +3,49 @@ import Foundation
 import Testing
 @testable import MotoTripTracker
 
+struct NavigationCueFormattingTests {
+    @Test func chipUsesDistanceAndStreet() {
+        let text = NavigationCueFormatting.chipText(
+            distanceMeters: 120,
+            instruction: "Turn left onto Ermou"
+        )
+        #expect(text == "120 m Ermou")
+    }
+
+    @Test func compactLabelPrefersTheStreetAfterOntoOrOn() {
+        #expect(NavigationCueFormatting.compactLabel(from: "Turn right onto Athinas") == "Athinas")
+        #expect(NavigationCueFormatting.compactLabel(from: "Keep left to stay on Panepistimiou") == "Panepistimiou")
+        #expect(
+            NavigationCueFormatting.compactLabel(from: "Continue on Ermou for 2 kilometers") == "Ermou"
+        )
+        #expect(
+            NavigationCueFormatting.compactLabel(from: "At the roundabout, take the 2nd exit onto Leoforos Athinon")
+            == "Leoforos Athinon"
+        )
+    }
+
+    @Test func compactLabelFallsBackToAShortManeuver() {
+        #expect(NavigationCueFormatting.compactLabel(from: "Turn left") == "Left")
+        #expect(NavigationCueFormatting.compactLabel(from: "Make a U-turn") == "U-turn")
+        #expect(NavigationCueFormatting.compactLabel(from: "Arrive at destination") == "Destination")
+        #expect(NavigationCueFormatting.compactLabel(from: "Continue straight") == "Straight")
+    }
+
+    @Test func remainingTimeLabel() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        #expect(NavigationCueFormatting.remainingTimeLabel(until: nil, now: now) == "--")
+        #expect(
+            NavigationCueFormatting.remainingTimeLabel(until: now.addingTimeInterval(18 * 60), now: now) == "18 min"
+        )
+        #expect(
+            NavigationCueFormatting.remainingTimeLabel(until: now.addingTimeInterval(20), now: now) == "now"
+        )
+        #expect(
+            NavigationCueFormatting.remainingTimeLabel(until: now.addingTimeInterval(90 * 60), now: now) == "1h 30m"
+        )
+    }
+}
+
 struct DestinationAndNavTests {
 
     @Test func destinationHistoryAddsNewestFirstAndCapsAt20() {
@@ -80,6 +123,35 @@ struct DestinationAndNavTests {
         DestinationSearchHistory.remove(id: dropID, defaults: defaults)
         let names = DestinationSearchHistory.all(defaults: defaults).map(\.name)
         #expect(names == ["Keep"])
+    }
+
+    @Test @MainActor func returnToPreviewKeepsTheDestination() {
+        let service = NavigationService()
+        let destination = CLLocationCoordinate2D(latitude: 37.9838, longitude: 23.7275)
+        service.beginPreview(coordinate: destination, name: "Ermou")
+        let option = NavRouteOption(
+            id: UUID(),
+            coordinates: [
+                destination,
+                CLLocationCoordinate2D(latitude: 37.99, longitude: 23.74)
+            ],
+            distanceMeters: 1_200,
+            expectedTravelTime: 600,
+            motoTravelTime: 500,
+            trafficDelay: 100,
+            steps: []
+        )
+        service.previewRoutes = [option]
+        service.selectedRouteID = option.id
+        service.confirmStartNavigation()
+
+        #expect(service.isNavigating)
+
+        service.returnToPreview()
+
+        #expect(service.isPreviewing)
+        #expect(service.destinationName == "Ermou")
+        #expect(service.previewRoutes.count == 1)
     }
 
     @Test @MainActor func routePreviewWaitsForGpsThenRetries() {

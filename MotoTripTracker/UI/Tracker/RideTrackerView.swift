@@ -46,6 +46,8 @@ struct RideTrackerView: View {
         // so the Options menu (same corner) is hidden to avoid overlap.
         let isRiding = riding
 
+        let navigating = app.navigationService.isNavigating
+
         GeometryReader { _ in
             VStack(spacing: 0) {
                 LiveRideMapView()
@@ -60,40 +62,52 @@ struct RideTrackerView: View {
                             colors: colors,
                             showFuelSettings: $showFuelSettings,
                             showBackendSettings: $showBackendSettings,
-                            showPetrolPicker: $showPetrolPicker
+                            showPetrolPicker: $showPetrolPicker,
+                            showRouteWeather: $showRouteWeather
                         )
                     }
                     .overlay(alignment: .bottom) {
-                        RideMapBottomOverlay(
-                            session: session,
-                            colors: colors,
-                            showDestinationSearch: $showDestinationSearch,
-                            showPetrolPicker: $showPetrolPicker,
-                            showRouteWeather: $showRouteWeather,
-                            timingBanner: $timingBanner
-                        )
+                        if !navigating {
+                            RideMapBottomOverlay(
+                                session: session,
+                                colors: colors,
+                                showDestinationSearch: $showDestinationSearch,
+                                showPetrolPicker: $showPetrolPicker,
+                                timingBanner: $timingBanner
+                            )
+                        }
                     }
                     .clipped()
 
-                // Viewport tall enough for the dial; stats sit below and scroll into view.
-                ScrollView {
-                    RideSpeedometerPanel(
-                        stats: stats,
-                        speedLimitKmh: speedLimitKmh,
-                        colors: colors
-                    )
+                // While guiding, the map owns the screen. Otherwise the dial panel sits below it.
+                if !navigating {
+                    ScrollView {
+                        RideSpeedometerPanel(
+                            stats: stats,
+                            speedLimitKmh: speedLimitKmh,
+                            colors: colors
+                        )
+                    }
+                    .frame(height: Self.speedometerViewportHeight)
+                    .background(colors.bgDeep)
                 }
-                .frame(height: Self.speedometerViewportHeight)
-                .background(colors.bgDeep)
             }
+            .animation(.easeInOut(duration: 0.28), value: navigating)
         }
         .background(colors.bgDeep.ignoresSafeArea())
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            RideControlsBar(
-                session: session,
-                colors: colors,
-                discardBanner: $discardBanner
-            )
+            if navigating {
+                NavigationGlanceBar(
+                    session: session,
+                    discardBanner: $discardBanner
+                )
+            } else {
+                RideControlsBar(
+                    session: session,
+                    colors: colors,
+                    discardBanner: $discardBanner
+                )
+            }
         }
         .overlay {
             OverLimitScreenFlash(isActive: shouldFlashScreen)

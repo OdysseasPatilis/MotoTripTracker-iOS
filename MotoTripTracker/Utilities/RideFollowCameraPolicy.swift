@@ -39,12 +39,22 @@ nonisolated enum RideFollowCameraPolicy {
     }
 
     /// Meters ahead of the rider for map center (speed-scaled; +20% when navigating).
-    static func lookAheadMeters(speedKmh: Double, isNavigating: Bool) -> CLLocationDistance {
+    /// `keepsRiderAboveBottomChrome` shortens that offset while the glance dial covers
+    /// the lower map, so the arrow stays above the instrument instead of under it.
+    static func lookAheadMeters(
+        speedKmh: Double,
+        isNavigating: Bool,
+        keepsRiderAboveBottomChrome: Bool = false
+    ) -> CLLocationDistance {
         let speed = max(speedKmh, 0)
         // ~40 m @ 20 km/h → ~180 m @ 100 km/h
         let base = lookAheadBaseMeters + min(speed, lookAheadSpeedCapKmh) * lookAheadSpeedSlope
-        return isNavigating ? base * lookAheadNavMultiplier : base
+        let scaled = isNavigating ? base * lookAheadNavMultiplier : base
+        return keepsRiderAboveBottomChrome ? scaled * bottomChromeLookAheadScale : scaled
     }
+
+    /// Fraction of the usual look-ahead kept when the nav dial occupies the lower map.
+    private static let bottomChromeLookAheadScale = 0.62
 
     /// Distance-to-maneuver at which turn zoom begins.
     static func approachWindowMeters(speedKmh: Double) -> CLLocationDistance {
@@ -80,10 +90,15 @@ nonisolated enum RideFollowCameraPolicy {
         rider: CLLocationCoordinate2D,
         courseDegrees: CLLocationDirection,
         speedKmh: Double,
-        isNavigating: Bool
+        isNavigating: Bool,
+        keepsRiderAboveBottomChrome: Bool = false
     ) -> CLLocationCoordinate2D {
         guard courseDegrees >= 0 else { return rider }
-        let meters = lookAheadMeters(speedKmh: speedKmh, isNavigating: isNavigating)
+        let meters = lookAheadMeters(
+            speedKmh: speedKmh,
+            isNavigating: isNavigating,
+            keepsRiderAboveBottomChrome: keepsRiderAboveBottomChrome
+        )
         return coordinateAhead(of: rider, courseDegrees: courseDegrees, meters: meters)
     }
 

@@ -15,22 +15,25 @@ struct RideMapTopOverlay: View {
     @Binding var showFuelSettings: Bool
     @Binding var showBackendSettings: Bool
     @Binding var showPetrolPicker: Bool
+    @Binding var showRouteWeather: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top, spacing: 8) {
-                topLeftHUD
-                Spacer(minLength: 0)
-                if session.isActive, !app.locationService.hasAlwaysAuthorization {
-                    alwaysLocationIconButton
-                }
-                if !isRiding {
-                    optionsMenu
-                }
-            }
             if app.navigationService.isNavigating {
-                topTurnBanner
-                    .padding(.horizontal, 10)
+                navigationHeader
+            } else {
+                HStack(alignment: .top, spacing: 8) {
+                    topLeftHUD
+                    Spacer(minLength: 0)
+                    if session.isActive, !app.locationService.hasAlwaysAuthorization {
+                        alwaysLocationIconButton
+                            .padding(.trailing, 12)
+                            .padding(.top, 12)
+                    }
+                    if !isRiding {
+                        optionsMenu
+                    }
+                }
             }
             if let alert = app.trafficCameraService.activeAlert {
                 trafficCameraBanner(alert)
@@ -91,8 +94,6 @@ struct RideMapTopOverlay: View {
                 .frame(width: 42, height: 42)
                 .background(.ultraThinMaterial, in: Circle())
         }
-        .padding(.trailing, 12)
-        .padding(.top, 12)
         .accessibilityLabel("Allow Always Location")
     }
 
@@ -142,50 +143,199 @@ struct RideMapTopOverlay: View {
         .accessibilityLabel("Options")
     }
 
-    private var topTurnBanner: some View {
-        let nav = app.navigationService
-        let accent = (nav.isOffRoute || nav.isRecalculating) ? colors.routeAmber : colors.neonBlue
-        return HStack(spacing: 14) {
-            Image(systemName: maneuverSymbol(for: nav))
-                .font(.title.weight(.bold))
-                .foregroundStyle(colors.bgDeep)
-                .frame(width: 56, height: 56)
-                .background(accent, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    private var navigationHeader: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .center, spacing: 8) {
+                Button {
+                    app.navigationService.returnToPreview()
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(NavigationHUDChrome.value)
+                        .frame(width: 28, height: 28)
+                        .background(NavigationHUDChrome.chip, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Back to route preview")
 
-            VStack(alignment: .leading, spacing: 4) {
-                if nav.isRecalculating {
-                    Text("Recalculating…")
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(colors.textPrimary)
-                } else if nav.isOffRoute {
-                    Text("Off route")
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(colors.textPrimary)
-                } else if let step = nav.currentStep {
-                    Text(NavigationService.formatDistance(nav.distanceToNextManeuver))
-                        .font(.title.weight(.bold))
-                        .foregroundStyle(colors.textPrimary)
-                    Text(step.instruction)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(colors.textSecondary)
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
-                } else if nav.isRouting {
-                    Text("Calculating route…")
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(colors.textPrimary)
-                } else {
-                    Text(nav.destinationName ?? "Destination")
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(colors.textPrimary)
-                        .lineLimit(2)
+                Spacer(minLength: 6)
+                if gpsQuality == .poor {
+                    Image(systemName: "location.slash.fill")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(colors.neonRed)
+                        .frame(width: 28, height: 28)
+                        .background(NavigationHUDChrome.chip, in: Circle())
+                        .accessibilityLabel("Weak GPS")
+                }
+                if session.isActive, !app.locationService.hasAlwaysAuthorization {
+                    alwaysLocationIconButton
+                }
+                navigationToolsMenu
+                fuelRangePill
+            }
+
+            navigationTurnBanner
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 8)
+    }
+
+    private var navigationTurnBanner: some View {
+        let nav = app.navigationService
+        let content = bannerContent(for: nav)
+        return HStack(spacing: 12) {
+            Image(systemName: chipSymbol(for: nav))
+                .font(.system(size: 30, weight: .bold))
+                .frame(width: 48, height: 48)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(content.primary)
+                    .font(.system(size: content.secondary == nil ? 26 : 32, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                if let secondary = content.secondary {
+                    Text(secondary)
+                        .font(.system(size: 18, weight: .semibold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
                 }
             }
             Spacer(minLength: 0)
         }
+        .foregroundStyle(NavigationHUDChrome.value)
         .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(NavigationHUDChrome.chip, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(chipAccessibility(for: nav))
+    }
+
+    private var fuelRangePill: some View {
+        let fuel = app.fuelService
+        let kilometers = Int(fuel.rangeRemainingKm.rounded())
+        return Button {
+            showFuelSettings = true
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "flame.fill")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(NavigationHUDChrome.fuelFlame)
+                Text("\(kilometers) km")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(fuel.isLowFuel ? colors.neonRed : NavigationHUDChrome.value)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(NavigationHUDChrome.chip, in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .layoutPriority(-1)
+        .accessibilityLabel("Fuel range \(kilometers) kilometers")
+    }
+
+    private var navigationToolsMenu: some View {
+        let nav = app.navigationService
+        return Menu {
+            Button {
+                nav.toggleVoice()
+            } label: {
+                Label(
+                    nav.isVoiceEnabled ? "Mute Voice" : "Unmute Voice",
+                    systemImage: nav.isVoiceEnabled ? "speaker.slash" : "speaker.wave.2"
+                )
+            }
+            Button {
+                showRouteWeather = true
+            } label: {
+                Label("Route Weather", systemImage: "cloud.sun")
+            }
+            .disabled(!nav.hasRoute)
+            Button {
+                nav.openInAppleMaps()
+            } label: {
+                Label("Open in Apple Maps", systemImage: "location.north.line")
+            }
+            Button {
+                nav.clear()
+            } label: {
+                Label("End Navigation", systemImage: "xmark.circle")
+            }
+            Divider()
+            Button {
+                navigate(.history)
+            } label: {
+                Label("Ride History", systemImage: "list.bullet")
+            }
+            Button {
+                navigate(.leaderboard)
+            } label: {
+                Label("Leaderboard", systemImage: "trophy")
+            }
+            Divider()
+            Button {
+                showFuelSettings = true
+            } label: {
+                Label("Fuel & Range", systemImage: "fuelpump")
+            }
+            Button {
+                showBackendSettings = true
+            } label: {
+                Label("Cloud Sync", systemImage: "icloud.and.arrow.up")
+            }
+            Button {
+                showPetrolPicker = true
+            } label: {
+                Label("Nearest Petrol", systemImage: "mappin.and.ellipse")
+            }
+            Divider()
+            Button {
+                theme.toggle()
+            } label: {
+                Label("\(theme.mode.toggleLabel) Mode", systemImage: theme.mode.toggleSymbol)
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(NavigationHUDChrome.value)
+                .frame(width: 28, height: 28)
+                .background(NavigationHUDChrome.chip, in: Circle())
+        }
+        .accessibilityLabel("Navigation options")
+    }
+
+    private func bannerContent(for nav: NavigationService) -> (primary: String, secondary: String?) {
+        if nav.isRecalculating { return ("Recalculating", nil) }
+        if nav.isOffRoute { return ("Off route", nil) }
+        if let step = nav.currentStep {
+            let street = NavigationCueFormatting.compactLabel(from: step.instruction, limit: 36)
+            let distance = NavigationService.formatDistance(nav.distanceToNextManeuver)
+            if street.isEmpty { return (distance, nil) }
+            return (distance, street)
+        }
+        if nav.isRouting { return ("Calculating", nil) }
+        return (nav.destinationName ?? "Destination", nil)
+    }
+
+    private func chipAccessibility(for nav: NavigationService) -> String {
+        if nav.isRecalculating { return "Recalculating route" }
+        if nav.isOffRoute { return "Off route" }
+        if let step = nav.currentStep {
+            let distance = NavigationService.formatDistance(nav.distanceToNextManeuver)
+            return "\(distance), \(step.instruction)"
+        }
+        if nav.isRouting { return "Calculating route" }
+        return nav.destinationName ?? "Destination"
+    }
+
+    private func chipSymbol(for nav: NavigationService) -> String {
+        if nav.currentStep != nil || nav.isRecalculating || nav.isOffRoute {
+            return maneuverSymbol(for: nav)
+        }
+        if nav.isRouting { return "arrow.triangle.2.circlepath" }
+        return "flag.checkered"
     }
 
     private func trafficCameraBanner(_ alert: TrafficCameraAlert) -> some View {
@@ -212,7 +362,6 @@ struct RideMapBottomOverlay: View {
     let colors: AppPalette
     @Binding var showDestinationSearch: Bool
     @Binding var showPetrolPicker: Bool
-    @Binding var showRouteWeather: Bool
     @Binding var timingBanner: String?
 
     var body: some View {
@@ -231,17 +380,8 @@ struct RideMapBottomOverlay: View {
             case .previewing:
                 routePreviewCard
             case .navigating:
-                VStack(spacing: 6) {
-                    if let hint = app.navigationService.trafficHintText {
-                        Text(hint)
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(colors.routeAmber)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 4)
-                            .background(.ultraThinMaterial, in: Capsule())
-                    }
-                    activeRouteChip
-                }
+                // Turn chip, dial, and the slim bar replace this card while guiding.
+                EmptyView()
             }
         }
         .padding(.horizontal, 10)
@@ -355,73 +495,6 @@ struct RideMapBottomOverlay: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-    }
-
-    private var activeRouteChip: some View {
-        let nav = app.navigationService
-        @Bindable var weather = app.routeWeatherService
-        return HStack(spacing: 10) {
-            Text(nav.isRouting ? "Routing…" : nav.summaryText)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(colors.textPrimary)
-                .lineLimit(1)
-
-            Spacer(minLength: 4)
-
-            if nav.hasRoute, !nav.isRouting {
-                Button {
-                    showRouteWeather = true
-                } label: {
-                    Group {
-                        if weather.isLoading {
-                            ProgressView()
-                                .controlSize(.mini)
-                        } else if let first = weather.segments.first {
-                            Image(systemName: first.conditionSymbol)
-                        } else {
-                            Image(systemName: "cloud.fill")
-                        }
-                    }
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(weather.lastError != nil ? colors.routeAmber : colors.neonBlue)
-                    .frame(width: 28, height: 28)
-                }
-                .accessibilityLabel("Route weather")
-            }
-
-            Button {
-                nav.toggleVoice()
-            } label: {
-                Image(systemName: nav.isVoiceEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(nav.isVoiceEnabled ? colors.neonGreen : colors.textSecondary)
-                    .frame(width: 28, height: 28)
-            }
-            .accessibilityLabel(nav.isVoiceEnabled ? "Mute voice guidance" : "Enable voice guidance")
-
-            Button {
-                nav.openInAppleMaps()
-            } label: {
-                Image(systemName: "location.north.line.fill")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(colors.neonGreen)
-                    .frame(width: 28, height: 28)
-            }
-            .accessibilityLabel("Open in Apple Maps")
-
-            Button {
-                nav.clear()
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.body)
-                    .foregroundStyle(colors.textSecondary)
-            }
-            .accessibilityLabel("Clear destination")
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(.ultraThinMaterial, in: Capsule())
-        .padding(.horizontal, 2)
     }
 
     private var routePreviewCard: some View {

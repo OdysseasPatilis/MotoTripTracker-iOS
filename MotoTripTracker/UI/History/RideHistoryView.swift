@@ -148,6 +148,7 @@ struct RideHistoryView: View {
         .background(colors.bgDeep.ignoresSafeArea())
         .navigationTitle("History")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.visible, for: .navigationBar)
         .searchable(text: $searchQuery, prompt: "Search rides")
         .sheet(item: $activeCustomField) { field in
             CustomDatePickerSheet(
