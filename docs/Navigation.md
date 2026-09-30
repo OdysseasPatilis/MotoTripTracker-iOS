@@ -4,18 +4,21 @@ How MotoTripTracker builds a driving route, follows it while you ride, speaks th
 
 This is Apple MapKit navigation inside the ride screen. It is not Google Maps, and it does not have Google's road network. MapKit returns one planned polyline. The app then keeps you on that line. When you have clearly left it, MapKit is asked for a new route from where you are.
 
-Last updated: 2026-09-27.
+Last updated: 2026-09-30.
 
 ## What you see
 
-Navigation lives on the live ride map, not on its own screen.
+Navigation lives on the live ride map, not on its own screen. While guidance is active the map fills the screen. The speedometer panel that normally sits under the map is hidden.
 
 1. Search for a destination (or pick a petrol station and tap Go).
-2. The app shows one or more driving routes. You can pick one.
-3. Start guidance. A turn card shows the next instruction and how far it is along the route. A chip shows distance left and a motorcycle ETA.
-4. The map draws the route and aims the camera ahead, tightening as you approach a turn.
-5. Voice speaks the instruction once when you get close, and again when the maneuver becomes current.
-6. Arrival ends guidance, plays a success haptic, and says "You have arrived".
+2. The app shows one or more driving routes. You can pick one. Cancel clears the destination.
+3. Start guidance. A full-width banner at the top shows the maneuver arrow, a large distance, and the street name (or a short maneuver such as Left) underneath. Recalculating, off route, and calculating use that same banner.
+4. A back chevron returns to the route preview and keeps the destination. End Navigation, voice mute, route weather, and Apple Maps are in the options menu. Fuel range is a small pill on that same row.
+5. A tick-mark speed dial (no needle) and the speed-limit sign sit on the lower map. The digits are the speed. Before Start the dial uses live GPS; once a ride is recording it uses the smoothed trip speed. "Cars +N min" appears above the dial when car traffic is meaningfully slower.
+6. The bottom bar shows ride distance, average speed, and **Left** (remaining motorcycle time, such as `18 min` or `1h 30m`, not a clock ETA), plus Start, Pause, and Stop.
+7. The map draws the route in a teal glow and aims the camera ahead, tightening as you approach a turn. Look-ahead is shortened while the dial covers the lower map so the arrow stays above it. The compass is hidden for the whole guidance session.
+8. Voice speaks the instruction once when you get close, and again when the maneuver becomes current.
+9. Arrival ends guidance, plays a success haptic, and says "You have arrived".
 
 The ride recorder, speed limit, and fuel tracker keep running the whole time. Navigation is another consumer of the same GPS fixes.
 
@@ -33,8 +36,12 @@ The ride recorder, speed limit, and fuel tracker keep running the whole time. Na
 | Recent destinations | `MotoTripTracker/Services/DestinationSearchHistory.swift` |
 | Route and step models | `MotoTripTracker/Services/NavigationModels.swift` |
 | GPS fan-out into navigation | `MotoTripTracker/AppContainer.swift` |
-| Map polyline and follow camera | `MotoTripTracker/UI/Tracker/LiveRideMapView.swift` |
-| Turn card and summary chip | `MotoTripTracker/UI/Tracker/RideMapOverlays.swift` |
+| Map polyline, glance dial placement, and follow camera | `MotoTripTracker/UI/Tracker/LiveRideMapView.swift` |
+| Turn banner, back chevron, and navigation menu | `MotoTripTracker/UI/Tracker/RideMapOverlays.swift` |
+| Banner distance and street-name copy | `MotoTripTracker/Services/NavigationCueFormatting.swift` |
+| Glance dial, limit badge, and HUD colors | `MotoTripTracker/UI/Tracker/RideDashboardGauges.swift` |
+| Bottom Dist / Avg / Left bar | `MotoTripTracker/UI/Tracker/RideControlsBar.swift` |
+| Full-screen map while guiding | `MotoTripTracker/UI/Tracker/RideTrackerView.swift` |
 | Camera distance while navigating | `MotoTripTracker/Utilities/RideFollowCameraPolicy.swift` |
 
 `NavigationService` is `@Observable` and `@MainActor`. SwiftUI reads its properties and redraws. There is no separate navigation view model.
@@ -47,7 +54,7 @@ The ride recorder, speed limit, and fuel tracker keep running the whole time. Na
 
 **Previewing.** A destination is set and MapKit is finding routes, or routes are on screen and waiting for Start. Steps are not active yet. Voice is stopped when preview begins. If GPS arrives before a route exists, `updateOrigin` asks for routes again so the first search is not stuck on "Waiting for your location…".
 
-**Navigating.** Start was confirmed. Every accepted GPS fix updates remaining distance, the current maneuver, off-route state, and arrival. Preview alternates are no longer requested.
+**Navigating.** Start was confirmed. Every accepted GPS fix updates remaining distance, the current maneuver, off-route state, and arrival. Preview alternates are no longer requested. The back chevron calls `returnToPreview`, which stops voice, drops the in-progress timing, and returns to `previewing` with the destination and any already loaded route choices kept. If those choices are gone, it asks MapKit for routes again. End Navigation calls `clear` and drops the destination.
 
 `routeRequestGeneration` increments whenever a new search starts or navigation is cleared. A MapKit response is ignored if a newer request has already been issued, or if the phase changed while the request was in flight (for example you cancelled during the fetch).
 
@@ -156,7 +163,9 @@ When that distance is 35 m or less, and a later step exists, the step index adva
 
 If the step end cannot be placed on the polyline, the app falls back to straight-line distance for that one maneuver.
 
-The HUD line is `guidanceSummary`:
+The on-screen banner does not print the full MapKit sentence. `NavigationCueFormatting` keeps the distance large and puts a short label under it: the street after "onto", "on", or "toward" when the instruction names one, otherwise a one-word maneuver (Left, U-turn, Destination). Off route and recalculating replace that pair with a single line.
+
+`guidanceSummary` is the longer line used by the Live Activity, not the banner:
 
 - "Recalculating…" while a replacement route is in flight.
 - "Off route — recalculating" once a departure has been accepted and the new route is not back yet.
@@ -211,7 +220,7 @@ Turning voice off stops speech immediately. Starting a new preview also stops sp
 
 ## Map and camera
 
-`LiveRideMapView` draws `routeCoordinates` whenever a route exists and you are not in an empty preview. The follow camera uses `RideFollowCameraPolicy`. While navigating, look-ahead is 1.2× the normal ride look-ahead, and as `distanceToNextManeuver` falls inside the approach window the camera pulls in toward the turn (down to about 55% of cruise distance, never closer than 220 m).
+`LiveRideMapView` draws `routeCoordinates` whenever a route exists and you are not in an empty preview. While navigating, that line is a teal glow instead of the idle route blue. The follow camera uses `RideFollowCameraPolicy`. While navigating, look-ahead is 1.2× the normal ride look-ahead, then 0.62× of that while the glance dial is on screen, so the rider stays above the instrument. As `distanceToNextManeuver` falls inside the approach window the camera pulls in toward the turn (down to about 55% of cruise distance, never closer than 220 m).
 
 The blue user dot is still the device location from MapKit. Guidance numbers use the snapped point on the polyline. Those two are not forced to be the same pixel.
 
@@ -242,4 +251,5 @@ The blue user dot is still the device location from MapKit. Guidance numbers use
 
 - `MotoTripTrackerTests/NavigationRouteMathTests.swift` — remaining distance at the start, end, and beside the middle of a segment; a nearer opposite-direction road does not steal the match; step advance thresholds; arrival rules.
 - `MotoTripTrackerTests/GpsStreetMatchTests.swift` — one off-route sample does not recalculate; traveling off with a different heading does; same-heading lateral jitter does not; stopped drift does not; returning to the route cancels a pending departure.
-- `MotoTripTrackerTests/DestinationAndNavTests.swift` — destination history and the motorcycle ETA estimator.
+- `MotoTripTrackerTests/DestinationAndNavTests.swift` — destination history, the motorcycle ETA estimator, banner copy ("120 m Ermou", short maneuvers, remaining-time labels), and returning from guidance to the route preview without clearing the destination.
+- `MotoTripTrackerTests/RideFollowCameraTests.swift` — look-ahead grows with speed and navigation, and shortens again while the glance dial covers the lower map.
