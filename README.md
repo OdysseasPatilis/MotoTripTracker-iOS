@@ -9,7 +9,7 @@ The app is the iOS counterpart of the Android **MotoTripTracker** project, with 
 ## Features
 
 ### Live ride tracking
-- **Split dashboard**: live MapKit map on top (fills leftover space), original-size speedometer flush above Start / Pause, ride stats scroll below the dial like before
+- **Split dashboard** when you are not guiding: live MapKit map on top, speedometer panel underneath, ride stats scrolling below the dial. While turn-by-turn guidance is active the map fills the screen and that panel is hidden
 - **Live map** with follow-camera, 3D pitch, and look-ahead framing while riding (more road ahead; tightens near turns when navigating); gentle top-down view when idle
 - **Traveled trail** drawn on the map as a mint polyline during the session
 - **Start / pause / resume / stop** with **keep-screen-on while a ride is active** (including paused) so auto-lock does not dim the dashboard mid-ride
@@ -21,7 +21,7 @@ The app is the iOS counterpart of the Android **MotoTripTracker** project, with 
 - **When In Use / Allow Once is not enough** for locked-screen rides — without Always, GPS pauses on lock and the ride clock freezes (Live Activity can still show stale stats).
 - **Neon glow speedometer** (270° ring with blurred underlay) and centered European-style speed-limit badge (display-only; no manual override)
 - **Dashboard metrics**: distance, moving/stopped time, avg/max speed (max from raw GPS, avg capped by peak and based on speed-consistent distance), elevation gain, longitudinal G, lateral G, **twistiness score** (0–100 from corner density + lateral G)
-- **GPS quality** and **battery** as floating chips on the map; **Options** menu (History, Leaderboard, Fuel & Range, Cloud Sync, Nearest Petrol, theme) hidden while riding so it does not overlap the map compass
+- **GPS quality** and **battery** as floating chips on the map when you are not guiding. While guiding, those chips are hidden; a weak-GPS icon appears only when the fix is poor, and the map compass is hidden. Options (History, Leaderboard, Fuel & Range, Cloud Sync, Nearest Petrol, theme) move into the navigation menu
 - Short rides under **50 m** are discarded automatically
 
 ### Launch & branding
@@ -43,16 +43,16 @@ The app is the iOS counterpart of the Android **MotoTripTracker** project, with 
 - **Moto ETA** on preview and guidance: car traffic delays are only partly applied (bikes can filter); the factor **learns** from your completed navigations
 - After a guided trip ends (you arrive, or clear the route), a short banner compares **actual time vs car traffic ETA**
 - **Auto-arrives** within ~45 m of the destination (with a short dwell) and ends guidance, speaks “You have arrived”, then shows the timing banner
-- **Compact turn HUD**: next-maneuver card at the **top** of the map (distance + two-line instruction); thin bottom chip for remaining distance / moto ETA, optional “Cars +N min” hint, weather, voice mute, Apple Maps, and clear — so the map stays visible while navigating
-- **Spoken turns** (`AVSpeechSynthesizer`): announces approach (~250 m) and on step advance; mute from the bottom chip; uses an English voice (MapKit instructions are English). Light haptic still fires on advance
-- **Riding camera:** While recording with follow on, the map centers ahead of you (more road ahead) and zooms in for upcoming turns using a speed-scaled window; the top turn banner uses larger type and a 2-line instruction
-- **Off-route recalculation** when you stray ~80 m from the planned polyline (cooldown to avoid spam)
+- **Glance HUD** while guiding: a full-width turn banner (arrow, large distance, street name underneath), a tick-mark speed dial with the limit sign on the lower map, and a bottom bar for ride distance, average speed, and **Left** (remaining motorcycle time). “Cars +N min” sits above the dial when car traffic is meaningfully slower. A back chevron returns to the route preview. Voice, weather, Apple Maps, and End Navigation are in the options menu
+- **Spoken turns** (`AVSpeechSynthesizer`): announces approach (~250 m) and on step advance; mute from the navigation menu; uses an English voice (MapKit instructions are English). Light haptic still fires on advance
+- **Riding camera:** While recording with follow on, the map centers ahead of you (more road ahead) and zooms in for upcoming turns using a speed-scaled window. During guidance that look-ahead is shortened so the arrow stays above the speed dial
+- **Off-route recalculation** after you have traveled about 50 m off the planned line (stricter when your heading disagrees). A single GPS spike does not reroute. See `docs/Navigation.md`
 - **Distance remaining** and **ETA** update as you move
 - **Map places:** Tap a shop or landmark on the dashboard map to open a Go card; **Go** starts the same route preview as destination search
 - **Traffic cameras** (speed + red-light): camera icons follow the **visible map area** as you pan; while recording, approaching one near your GPS triggers voice + haptic + a short banner (warn distance scales with speed). Offline packs: nationwide `greece_traffic_cameras.json` plus Greater Athens fill-in; the app auto-downloads the country pack from [speedcams.world](https://speedcams.world/download) when needed and falls back to live Overpass (`highway`/`device`/`enforcement`/`camera:type`). Coverage follows OpenStreetMap — many real Greek cameras (especially red-light) are unmapped. Mute nav voice to silence camera prompts too.
 - **Nearest petrol** opens a **recommendation list** ranked by saved brand order (e.g. Shell → BP), preferred octane (**95 / 98 / 100**), open status, then distance. Search radius **adapts to context** — tighter in cities (2–10 km), wider in towns/rural (20–50 km), and **highway-biased** when riding fast on motorways. Each card shows **Open now / Closed now / Hours unknown** (from OSM when tagged), short hours when available, **preference-match stars** (brand + octane fit — Apple Maps ratings are not readable by apps), Preferred / Highway / octane chips, and address when MapKit provides one. **Details** opens Apple’s place card; compact **Go** opens route preview, where **Start** begins turn-by-turn navigation. Stations marked closed in OSM are filtered out.
-- **Route weather** (Open-Meteo): when a route is computed, forecasts are sampled along the plan at estimated arrival times. Tap the weather glyph on the bottom chip for the full timeline
-- **Open in Apple Maps** for handoff; clear route from the bottom chip
+- **Route weather** (Open-Meteo): when a route is computed, forecasts are sampled along the plan at estimated arrival times. Open the timeline from Route Weather in the navigation menu
+- **Open in Apple Maps** for handoff, and **End Navigation**, from that same menu. The back chevron returns to the route preview without clearing the destination
 
 ### Fuel & range
 - Tank capacity, remaining liters, and L/100 km consumption (persisted)
