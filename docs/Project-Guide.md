@@ -7,7 +7,7 @@ Related docs:
 - [`docs/Navigation.md`](Navigation.md) — how in-app turn-by-turn guidance follows a route  
 - [`docs/RND-Backend.md`](RND-Backend.md) — future backend / live-share R&D  
 
-Last updated: 2026-08-30
+Last updated: 2026-09-30
 
 ---
 
@@ -307,16 +307,18 @@ Root is always `RideTrackerView`. Other screens are pushed via `NavigationStack`
 
 ### Main dashboard (`RideTrackerView`)
 
-HUD-style layout (nav bar often hidden while riding):
+HUD-style layout (the system navigation bar is hidden on the tracker; History, Leaderboard, Summary, and the full-route screen show it again so the back button stays available):
 
-- Top: `LiveRideMapView` (~46% height) with overlays (GPS, battery, range, nav HUD)
-- Bottom: neon speedometer, European-style limit badge, stats grid, Start/Pause/Stop
+- Idle and preview: `LiveRideMapView` on top with overlays (GPS, battery, range), and a speedometer panel underneath (neon dial, European-style limit badge, stats) plus Start/Pause/Stop
+- While guiding: the map fills the screen. The speedometer panel is hidden. A turn banner, a tick-mark speed dial, and a Dist / Avg / Left bar replace it
 - Sheets: destination search, petrol, weather, fuel settings
-- Options menu (when idle): History, Leaderboard, theme
+- Options menu when idle: History, Leaderboard, fuel, cloud sync, petrol, theme. While guiding, those items plus voice, weather, Apple Maps, and End Navigation live in the banner's menu
 
-**Nav HUD layout:**
-- **Top card:** next turn (distance + instruction)
-- **Bottom chip:** ETA / remaining, weather glyph, voice mute, Apple Maps, clear
+**Glance HUD while guiding:**
+- **Turn banner:** maneuver arrow, large distance, street or short maneuver underneath (`NavigationCueFormatting`)
+- **Back chevron:** returns to the route preview and keeps the destination
+- **Lower map:** tick-mark dial (no needle) and speed-limit sign. Live GPS speed before Start; smoothed trip speed once recording
+- **Bottom bar:** ride distance, average speed, remaining motorcycle time labeled Left, and Start/Pause/Stop
 
 Spoken turns: `NavigationVoicePrompt` (~250 m approach + on step advance); mute persisted.
 
@@ -437,7 +439,7 @@ The full path — search, MapKit routes, snap-to-route, voice, off-route recalcu
 
 **Voice:** `Services/NavigationVoicePrompt.swift` (`AVSpeechSynthesizer`, English `en-US` / enhanced English voices — MapKit step text is English).
 
-**UI:** top turn card + bottom chip in `RideMapOverlays`; map polyline in `LiveRideMapView`.
+**UI:** full-screen map while guiding. Turn banner and navigation menu in `RideMapOverlays`; glance dial in `RideDashboardGauges`; Dist / Avg / Left bar in `RideControlsBar`; banner copy in `NavigationCueFormatting`. See [`docs/Navigation.md`](Navigation.md) for the layout.
 
 ### Petrol
 
@@ -650,7 +652,7 @@ When stuck on an Apple API, search Apple’s docs for the type name (`CLLocation
 | What happens each GPS second | `AppContainer` callback + `TripManager.onLocationUpdate` |
 | Background GPS | `LocationService` + Always permission strings |
 | Speed limit number on the sign | `SpeedLimitService.effectiveLimitKmh` |
-| Turn banner / voice | `RideTrackerView` + `NavigationService` + `NavigationVoicePrompt` |
+| Turn banner / voice | `RideMapOverlays` + `NavigationCueFormatting` + `NavigationVoicePrompt` |
 | Saved ride fields | `Data/Models/Trip.swift` |
 | History list | `UI/History/RideHistoryView.swift` |
 | Share image | `Utilities/RideShareHelper.swift` |
