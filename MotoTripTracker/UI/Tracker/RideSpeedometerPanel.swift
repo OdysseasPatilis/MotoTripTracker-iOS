@@ -36,6 +36,16 @@ struct RideSpeedometerPanel: View {
     }
 
     private var statsGrid: some View {
+        RideStatsGrid(stats: stats, colors: colors)
+    }
+}
+
+/// Distance, time, speed, and G tiles that sit under the live dial.
+struct RideStatsGrid: View {
+    let stats: TripStats
+    let colors: AppPalette
+
+    var body: some View {
         let columns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
         let metrics: [(String, String, Color?)] = [
             ("Distance", String(format: "%.1f km", stats.distanceKm), nil),

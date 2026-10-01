@@ -77,20 +77,42 @@ struct RideTrackerView: View {
                     if !navigating {
                         VStack(spacing: 4) {
                             if showsMainDial {
-                                SpeedometerArc(
-                                    speedKmh: speedKmh,
-                                    maxSpeedKmh: max(stats.maxSpeed, 260),
-                                    speedLimitKmh: Double(speedLimitKmh),
-                                    colors: colors
-                                )
-                                .background {
-                                    Circle()
-                                        .fill(colors.bgCard.opacity(0.94))
-                                        .frame(width: 228, height: 228)
-                                        .shadow(color: .black.opacity(0.35), radius: 16, y: 6)
+                                ScrollView {
+                                    VStack(spacing: 12) {
+                                        SpeedometerArc(
+                                            speedKmh: speedKmh,
+                                            maxSpeedKmh: max(stats.maxSpeed, 260),
+                                            speedLimitKmh: Double(speedLimitKmh),
+                                            colors: colors
+                                        )
+                                        .background {
+                                            Circle()
+                                                .fill(colors.bgCard.opacity(0.94))
+                                                .frame(width: 228, height: 228)
+                                                .shadow(color: .black.opacity(0.35), radius: 16, y: 6)
+                                        }
+                                        .frame(maxWidth: .infinity)
+                                        .accessibilityElement(children: .combine)
+
+                                        VStack(spacing: 14) {
+                                            GForceBar(
+                                                value: stats.currentGForce,
+                                                maxValue: max(stats.maxGForce, 0.01),
+                                                colors: colors
+                                            )
+                                            RideStatsGrid(stats: stats, colors: colors)
+                                        }
+                                        .padding(16)
+                                        .frame(maxWidth: .infinity)
+                                        .background(colors.bgDeep, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                                    }
+                                    .padding(.horizontal, 10)
+                                    .padding(.bottom, 8)
                                 }
-                                .allowsHitTesting(false)
-                                .accessibilityElement(children: .combine)
+                                .frame(height: 260)
+                                .contentMargins(.vertical, 0, for: .scrollContent)
+                                .scrollIndicators(.hidden)
+                                .clipped()
                             }
                             RideMapBottomOverlay(
                                 session: session,
