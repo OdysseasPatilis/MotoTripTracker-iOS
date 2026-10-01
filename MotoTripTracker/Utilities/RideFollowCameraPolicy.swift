@@ -39,22 +39,21 @@ nonisolated enum RideFollowCameraPolicy {
     }
 
     /// Meters ahead of the rider for map center (speed-scaled; +20% when navigating).
-    /// `keepsRiderAboveBottomChrome` shortens that offset while the glance dial covers
-    /// the lower map, so the arrow stays above the instrument instead of under it.
+    /// `keepsRiderAboveBottomChrome` shortens that offset while a dial covers the lower
+    /// map. The glance dial uses 0.62; the larger main-screen dial uses 0.4.
     static func lookAheadMeters(
         speedKmh: Double,
         isNavigating: Bool,
-        keepsRiderAboveBottomChrome: Bool = false
+        keepsRiderAboveBottomChrome: Bool = false,
+        bottomChromeScale: Double = 0.62
     ) -> CLLocationDistance {
         let speed = max(speedKmh, 0)
         // ~40 m @ 20 km/h → ~180 m @ 100 km/h
         let base = lookAheadBaseMeters + min(speed, lookAheadSpeedCapKmh) * lookAheadSpeedSlope
         let scaled = isNavigating ? base * lookAheadNavMultiplier : base
-        return keepsRiderAboveBottomChrome ? scaled * bottomChromeLookAheadScale : scaled
+        guard keepsRiderAboveBottomChrome else { return scaled }
+        return scaled * min(max(bottomChromeScale, 0.2), 1)
     }
-
-    /// Fraction of the usual look-ahead kept when the nav dial occupies the lower map.
-    private static let bottomChromeLookAheadScale = 0.62
 
     /// Distance-to-maneuver at which turn zoom begins.
     static func approachWindowMeters(speedKmh: Double) -> CLLocationDistance {
@@ -91,13 +90,15 @@ nonisolated enum RideFollowCameraPolicy {
         courseDegrees: CLLocationDirection,
         speedKmh: Double,
         isNavigating: Bool,
-        keepsRiderAboveBottomChrome: Bool = false
+        keepsRiderAboveBottomChrome: Bool = false,
+        bottomChromeScale: Double = 0.62
     ) -> CLLocationCoordinate2D {
         guard courseDegrees >= 0 else { return rider }
         let meters = lookAheadMeters(
             speedKmh: speedKmh,
             isNavigating: isNavigating,
-            keepsRiderAboveBottomChrome: keepsRiderAboveBottomChrome
+            keepsRiderAboveBottomChrome: keepsRiderAboveBottomChrome,
+            bottomChromeScale: bottomChromeScale
         )
         return coordinateAhead(of: rider, courseDegrees: courseDegrees, meters: meters)
     }

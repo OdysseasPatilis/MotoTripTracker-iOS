@@ -15,11 +15,9 @@ struct RideTrackerView: View {
     @State private var showPetrolPicker = false
     @State private var showRouteWeather = false
     @State private var timingBanner: String?
+    @State private var mapPlaceCardVisible = false
 
     private var speedLimitKmh: Int { app.speedLimitService.effectiveLimitKmh }
-
-    /// Bottom panel shows the full dial + G-force card; ride stats scroll in underneath.
-    private static let speedometerViewportHeight: CGFloat = 370
 
     /// Prefer live Core Location accuracy so the toolbar updates even when idle.
     private var dashboardGpsAccuracy: Double? {
@@ -32,6 +30,14 @@ struct RideTrackerView: View {
 
     private var dashboardGpsQuality: GpsQuality {
         GpsQuality.fromAccuracyMeters(dashboardGpsAccuracy)
+    }
+
+    /// Smoothed trip speed while recording. Before Start the trip speed stays at 0,
+    /// so the dial uses the live GPS speed.
+    private func displayedSpeedKmh(riding: Bool, recorded: Double) -> Double {
+        if riding { return recorded }
+        guard let speed = app.locationService.lastLocation?.speed, speed >= 0 else { return 0 }
+        return speed * 3.6
     }
 
     var body: some View {
@@ -47,27 +53,45 @@ struct RideTrackerView: View {
         let isRiding = riding
 
         let navigating = app.navigationService.isNavigating
+        let showsMainDial = app.navigationService.phase == .idle && !mapPlaceCardVisible
+        let speedKmh = displayedSpeedKmh(riding: riding, recorded: stats.speed)
 
         GeometryReader { _ in
-            VStack(spacing: 0) {
-                LiveRideMapView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .overlay(alignment: .top) {
-                        RideMapTopOverlay(
-                            session: session,
-                            isRiding: isRiding,
-                            batteryLevel: batteryLevel,
-                            gpsQuality: dashboardGpsQuality,
-                            gpsAccuracy: dashboardGpsAccuracy,
-                            colors: colors,
-                            showFuelSettings: $showFuelSettings,
-                            showBackendSettings: $showBackendSettings,
-                            showPetrolPicker: $showPetrolPicker,
-                            showRouteWeather: $showRouteWeather
-                        )
-                    }
-                    .overlay(alignment: .bottom) {
-                        if !navigating {
+            LiveRideMapView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .overlay(alignment: .top) {
+                    RideMapTopOverlay(
+                        session: session,
+                        isRiding: isRiding,
+                        batteryLevel: batteryLevel,
+                        gpsQuality: dashboardGpsQuality,
+                        gpsAccuracy: dashboardGpsAccuracy,
+                        colors: colors,
+                        showFuelSettings: $showFuelSettings,
+                        showBackendSettings: $showBackendSettings,
+                        showPetrolPicker: $showPetrolPicker,
+                        showRouteWeather: $showRouteWeather
+                    )
+                }
+                .overlay(alignment: .bottom) {
+                    if !navigating {
+                        VStack(spacing: 4) {
+                            if showsMainDial {
+                                SpeedometerArc(
+                                    speedKmh: speedKmh,
+                                    maxSpeedKmh: max(stats.maxSpeed, 260),
+                                    speedLimitKmh: Double(speedLimitKmh),
+                                    colors: colors
+                                )
+                                .background {
+                                    Circle()
+                                        .fill(colors.bgCard.opacity(0.94))
+                                        .frame(width: 228, height: 228)
+                                        .shadow(color: .black.opacity(0.35), radius: 16, y: 6)
+                                }
+                                .allowsHitTesting(false)
+                                .accessibilityElement(children: .combine)
+                            }
                             RideMapBottomOverlay(
                                 session: session,
                                 colors: colors,
@@ -77,22 +101,10 @@ struct RideTrackerView: View {
                             )
                         }
                     }
-                    .clipped()
-
-                // While guiding, the map owns the screen. Otherwise the dial panel sits below it.
-                if !navigating {
-                    ScrollView {
-                        RideSpeedometerPanel(
-                            stats: stats,
-                            speedLimitKmh: speedLimitKmh,
-                            colors: colors
-                        )
-                    }
-                    .frame(height: Self.speedometerViewportHeight)
-                    .background(colors.bgDeep)
                 }
-            }
+                .clipped()
             .animation(.easeInOut(duration: 0.28), value: navigating)
+            .animation(.easeInOut(duration: 0.28), value: showsMainDial)
         }
         .background(colors.bgDeep.ignoresSafeArea())
         .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -152,6 +164,7 @@ struct RideTrackerView: View {
                 app.speedLimitService.refresh(for: location)
             }
         }
+        .onPreferenceChange(MapPlaceCardVisibleKey.self) { mapPlaceCardVisible = $0 }
         .onDisappear {
             if !session.isActive {
                 app.locationService.stopUpdating()

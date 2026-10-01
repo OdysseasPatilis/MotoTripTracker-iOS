@@ -47,9 +47,11 @@ struct LiveRideMapView: View {
         let previewItems = Self.previewPolylineItems(from: navigation)
         let showRecenter = !isFollowingUser && navigation.phase != .previewing
         let showsGlanceDial = navigation.isNavigating && selectedPlace == nil
+        let showsMainDial = navigation.phase == .idle && selectedPlace == nil
         let bottomChromePadding: CGFloat = {
             if selectedPlace != nil { return 250 }
             if showsGlanceDial { return 230 }
+            if showsMainDial { return 300 }
             return 100
         }()
         let routeColor = navigation.isNavigating ? NavigationHUDChrome.route : colors.neonBlue
@@ -132,6 +134,7 @@ struct LiveRideMapView: View {
         }
         .animation(.easeInOut(duration: 0.2), value: showRecenter)
         .animation(.easeInOut(duration: 0.2), value: selectedPlace?.id)
+        .preference(key: MapPlaceCardVisibleKey.self, value: selectedPlace != nil)
         .onChange(of: mapSelection) { _, newSelection in
             handleMapSelectionChange(newSelection)
         }
@@ -397,18 +400,20 @@ struct LiveRideMapView: View {
         guard let location else { return }
 
         let camera: MapCamera
+        let navigation = app.navigationService
+        let isNavigating = navigation.isNavigating
         if isRiding {
             let speedKmh = max(location.speed, 0) * 3.6
-            let navigation = app.navigationService
-            let isNavigating = navigation.isNavigating
             let heading = location.course >= 0 ? location.course : 0
             let glanceDialVisible = isNavigating && selectedPlace == nil
+            let mainDialVisible = !isNavigating && navigation.phase == .idle && selectedPlace == nil
             let center = RideFollowCameraPolicy.centerCoordinate(
                 rider: location.coordinate,
                 courseDegrees: location.course,
                 speedKmh: speedKmh,
                 isNavigating: isNavigating,
-                keepsRiderAboveBottomChrome: glanceDialVisible
+                keepsRiderAboveBottomChrome: glanceDialVisible || mainDialVisible,
+                bottomChromeScale: mainDialVisible ? 0.4 : 0.62
             )
             let distance = RideFollowCameraPolicy.cameraDistanceMeters(
                 speedKmh: speedKmh,
@@ -423,8 +428,16 @@ struct LiveRideMapView: View {
                 pitch: 55
             )
         } else {
+            let mainDialVisible = !isNavigating && navigation.phase == .idle && selectedPlace == nil
+            let center = mainDialVisible
+                ? RideFollowCameraPolicy.coordinateAhead(
+                    of: location.coordinate,
+                    courseDegrees: 180,
+                    meters: 400
+                )
+                : location.coordinate
             camera = MapCamera(
-                centerCoordinate: location.coordinate,
+                centerCoordinate: center,
                 distance: 1400,
                 heading: 0,
                 pitch: 0
@@ -468,4 +481,11 @@ private struct PreviewPolylineItem: Identifiable {
     let id: String
     let coordinates: [CLLocationCoordinate2D]
     let isSelected: Bool
+}
+
+struct MapPlaceCardVisibleKey: PreferenceKey {
+    static var defaultValue = false
+    static func reduce(value: inout Bool, nextValue: () -> Bool) {
+        value = value || nextValue()
+    }
 }
