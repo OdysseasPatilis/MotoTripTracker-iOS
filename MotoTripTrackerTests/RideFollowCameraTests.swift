@@ -47,6 +47,19 @@ struct RideFollowCameraTests {
         #expect(noCourse.longitude == rider.longitude)
     }
 
+    @Test func idleRecenterStaysNearTheRiderAboveTheDial() {
+        let rider = CLLocationCoordinate2D(latitude: 37.98, longitude: 23.72)
+        let center = RideFollowCameraPolicy.idleCenterAboveBottomDial(
+            rider: rider,
+            cameraDistanceMeters: 1400
+        )
+        let shift = CLLocation(latitude: rider.latitude, longitude: rider.longitude)
+            .distance(from: CLLocation(latitude: center.latitude, longitude: center.longitude))
+        #expect(center.latitude < rider.latitude)
+        #expect(shift > 50)
+        #expect(shift < 250)
+    }
+
     @Test func rideFollowCameraZoomsNearTurnWhenNavigating() {
         let cruise = RideFollowCameraPolicy.cameraDistanceMeters(
             speedKmh: 80,

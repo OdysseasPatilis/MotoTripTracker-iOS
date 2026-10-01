@@ -125,4 +125,23 @@ nonisolated enum RideFollowCameraPolicy {
             longitude: lon2 * 180 / .pi
         )
     }
+
+    /// Top-down follow center while the main speedometer covers the lower map.
+    /// The camera center moves a short distance south of the rider so the puck
+    /// sits in the open map above the dial. The shift is a fraction of the
+    /// ground the camera can see, not a fixed hop that throws the puck off screen.
+    static func idleCenterAboveBottomDial(
+        rider: CLLocationCoordinate2D,
+        cameraDistanceMeters: CLLocationDistance
+    ) -> CLLocationCoordinate2D {
+        let halfHeight = max(cameraDistanceMeters, 0) * tan(idleCameraHalfAngleRadians)
+        let meters = halfHeight * 2 * idleDialClearanceFraction
+        return coordinateAhead(of: rider, courseDegrees: 180, meters: meters)
+    }
+
+    /// MapKit's top-down camera sees about 30° of ground vertically.
+    private static let idleCameraHalfAngleRadians = 15.0 * .pi / 180
+
+    /// How far up the screen the puck should sit, as a fraction of the visible height.
+    private static let idleDialClearanceFraction = 0.18
 }

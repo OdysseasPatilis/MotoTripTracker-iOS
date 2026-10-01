@@ -51,7 +51,7 @@ struct LiveRideMapView: View {
         let bottomChromePadding: CGFloat = {
             if selectedPlace != nil { return 250 }
             if showsGlanceDial { return 230 }
-            if showsMainDial { return 300 }
+            if showsMainDial { return 440 }
             return 100
         }()
         let routeColor = navigation.isNavigating ? NavigationHUDChrome.route : colors.neonBlue
@@ -430,10 +430,9 @@ struct LiveRideMapView: View {
         } else {
             let mainDialVisible = !isNavigating && navigation.phase == .idle && selectedPlace == nil
             let center = mainDialVisible
-                ? RideFollowCameraPolicy.coordinateAhead(
-                    of: location.coordinate,
-                    courseDegrees: 180,
-                    meters: 400
+                ? RideFollowCameraPolicy.idleCenterAboveBottomDial(
+                    rider: location.coordinate,
+                    cameraDistanceMeters: 1400
                 )
                 : location.coordinate
             camera = MapCamera(
