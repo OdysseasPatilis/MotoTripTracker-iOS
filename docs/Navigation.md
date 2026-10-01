@@ -8,7 +8,7 @@ Last updated: 2026-09-30.
 
 ## What you see
 
-Navigation lives on the live ride map, not on its own screen. While guidance is active the map fills the screen. The speedometer panel that normally sits under the map is hidden.
+Navigation lives on the live ride map, not on its own screen. The map fills the screen. On the main screen the large speedometer floats on the lower map, above destination search. While guidance is active that dial steps aside for the glance dial and the bottom bar.
 
 1. Search for a destination (or pick a petrol station and tap Go).
 2. The app shows one or more driving routes. You can pick one. Cancel clears the destination.
