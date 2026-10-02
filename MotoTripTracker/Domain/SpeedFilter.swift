@@ -5,7 +5,8 @@ struct SpeedFilter: Sendable {
     /// 15 m — good threshold for a motorcycle on a road.
     private let minAccuracyMeters: CLLocationAccuracy = 15
     /// Ignore speeds under ~7 km/h. Indoor GPS often reports 4–5 km/h while standing still.
-    private let minSpeedMps: CLLocationSpeed = 2
+    static let stationaryFloorMps: CLLocationSpeed = 2
+    private let minSpeedMps: CLLocationSpeed = stationaryFloorMps
     /// Above the floor, still drop a reading whose uncertainty includes zero, up to ~14 km/h.
     private let noiseBandMps: CLLocationSpeed = 4
 

@@ -1,6 +1,7 @@
 import CoreLocation
 import MapKit
 import SwiftUI
+import UIKit
 import os
 
 /// Live, videogame-style map for the ride dashboard.
@@ -17,8 +18,10 @@ struct LiveRideMapView: View {
 
     @State private var cameraPosition: MapCameraPosition = .userLocation(fallback: .automatic)
     @State private var isFollowingUser = true
-    /// Counts programmatic camera moves so `onMapCameraChange` does not treat them as user pans.
-    @State private var programmaticCameraTokens = 0
+    /// One callback consumes every camera move the app queued, so a later pan still counts as the user's.
+    @State private var cameraGate = MapProgrammaticCameraGate()
+    /// Set on touch-down, before the next GPS fix can snap the camera back.
+    @State private var followPause = MapFollowPause()
     @State private var mapSelection: MapSelection<MKMapItem>?
     @State private var selectedPlace: PickedMapPlace?
     @State private var isResolvingPlace = false
@@ -49,15 +52,25 @@ struct LiveRideMapView: View {
         let showsGlanceDial = navigation.isNavigating && selectedPlace == nil
         let showsMainDial = navigation.phase == .idle && selectedPlace == nil
         let bottomChromePadding: CGFloat = {
-            if selectedPlace != nil { return 250 }
             if showsGlanceDial { return 230 }
             if showsMainDial { return 440 }
             return 100
         }()
         let routeColor = navigation.isNavigating ? NavigationHUDChrome.route : colors.neonBlue
 
+        let rider = app.locationService.lastLocation
+        let riderCourse = rider?.course ?? -1
+        let riderSpeed = rider?.speed ?? -1
+        let showsHeading = riderCourse >= 0 && riderSpeed >= SpeedFilter.stationaryFloorMps
+
         Map(position: $cameraPosition, selection: $mapSelection) {
-            UserAnnotation()
+            UserAnnotation(anchor: .center) {
+                RiderLocationMarker(
+                    headingDegrees: showsHeading ? riderCourse : nil,
+                    mapHeadingDegrees: (isRiding && showsHeading) ? riderCourse : 0,
+                    color: colors.neonGreen
+                )
+            }
             routeOverlays(
                 previewItems: previewItems,
                 activeRoute: navigation.phase == .previewing ? [] : navigation.routeCoordinates,
@@ -90,6 +103,11 @@ struct LiveRideMapView: View {
                 MapCompass()
             }
         }
+        .overlay {
+            MapInteractionSpy(isEnabled: isFollowingUser && navigation.phase != .previewing) {
+                pauseFollowForTouch()
+            }
+        }
         .overlay(alignment: .bottom) {
             if showsGlanceDial {
                 NavigationInstrumentCluster(
@@ -116,21 +134,19 @@ struct LiveRideMapView: View {
             }
         }
         .overlay(alignment: .bottomTrailing) {
-            if showRecenter {
-                Button {
-                    recenterOnUser()
-                } label: {
-                    Image(systemName: "location.fill")
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(colors.neonBlue)
-                        .frame(width: 44, height: 44)
-                }
-                .buttonStyle(.plain)
-                .glassEffect(.regular.interactive(), in: .circle)
-                .accessibilityLabel("Recenter map on my location")
-                .padding(.trailing, 12)
-                .padding(.bottom, bottomChromePadding)
-                .transition(.scale.combined(with: .opacity))
+            if showRecenter, selectedPlace == nil {
+                recenterButton(tint: colors.neonBlue)
+                    .padding(.trailing, 12)
+                    .padding(.bottom, bottomChromePadding)
+            }
+        }
+        .overlay(alignment: .topLeading) {
+            // The place card's close button owns the top-right of the card.
+            // Keep recenter under the GPS chip, on the opposite side.
+            if showRecenter, selectedPlace != nil {
+                recenterButton(tint: colors.neonBlue)
+                    .padding(.leading, 12)
+                    .padding(.top, navigation.isNavigating ? 168 : 72)
             }
         }
         .animation(.easeInOut(duration: 0.2), value: showRecenter)
@@ -144,20 +160,19 @@ struct LiveRideMapView: View {
                 isFollowingUser = false
                 clearSelectedPlace()
             } else if oldPhase == .previewing {
+                followPause.isPaused = false
                 isFollowingUser = true
                 updateCamera(location: app.locationService.lastLocation)
             }
         }
         .onMapCameraChange(frequency: .onEnd) { context in
-            let wasProgrammatic = programmaticCameraTokens > 0
-            if wasProgrammatic {
-                programmaticCameraTokens -= 1
-            }
+            let wasProgrammatic = cameraGate.consumeIfProgrammatic()
 
-            var following = isFollowingUser
+            var following = isFollowingUser && !followPause.isPaused
             if !wasProgrammatic,
                app.navigationService.phase != .previewing,
                following {
+                followPause.isPaused = true
                 following = false
                 isFollowingUser = false
             }
@@ -180,7 +195,7 @@ struct LiveRideMapView: View {
             }
         }
         .onChange(of: app.locationService.updateTick) { _, _ in
-            guard isFollowingUser else { return }
+            guard isFollowingUser, !followPause.isPaused else { return }
             updateCamera(location: app.locationService.lastLocation)
         }
         .onChange(of: isRiding) { _, riding in
@@ -189,11 +204,10 @@ struct LiveRideMapView: View {
             // especially painful when starting a ride without navigation preview,
             // which has no other path that re-asserts follow + 3D framing.
             if riding {
+                followPause.isPaused = false
                 isFollowingUser = true
-                programmaticCameraTokens += 1
                 updateCamera(location: app.locationService.lastLocation)
-            } else if isFollowingUser {
-                programmaticCameraTokens += 1
+            } else if isFollowingUser, !followPause.isPaused {
                 updateCamera(location: app.locationService.lastLocation)
             }
         }
@@ -277,6 +291,7 @@ struct LiveRideMapView: View {
             websiteURL: MapKitPlace.websiteURL(of: item),
             coordinate: coordinate
         )
+        followPause.isPaused = true
         isFollowingUser = false
     }
 
@@ -389,7 +404,33 @@ struct LiveRideMapView: View {
         }
     }
 
+    private func recenterButton(tint: Color) -> some View {
+        Button {
+            recenterOnUser()
+        } label: {
+            Image(systemName: "location.fill")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(tint)
+                .frame(width: 44, height: 44)
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: .circle)
+        .accessibilityLabel("Recenter map on my location")
+        .transition(.scale.combined(with: .opacity))
+    }
+
+    private func pauseFollowForTouch() {
+        guard app.navigationService.phase != .previewing else { return }
+        guard isFollowingUser || !followPause.isPaused else { return }
+        followPause.isPaused = true
+        // hitTest can run inside a view update. The flag above already blocks the next camera snap.
+        DispatchQueue.main.async {
+            isFollowingUser = false
+        }
+    }
+
     private func recenterOnUser() {
+        followPause.isPaused = false
         isFollowingUser = true
         clearSelectedPlace()
         updateCamera(location: app.locationService.lastLocation)
@@ -397,7 +438,12 @@ struct LiveRideMapView: View {
 
     private func updateCamera(location: CLLocation?) {
         guard app.navigationService.phase != .previewing else { return }
-        guard isFollowingUser else { return }
+        guard isFollowingUser, !followPause.isPaused else { return }
+        guard selectedPlace == nil else {
+            followPause.isPaused = true
+            isFollowingUser = false
+            return
+        }
         guard let location else { return }
 
         let camera: MapCamera
@@ -444,7 +490,7 @@ struct LiveRideMapView: View {
             )
         }
 
-        programmaticCameraTokens += 1
+        cameraGate.markProgrammatic()
         withAnimation(.easeInOut(duration: 0.45)) {
             cameraPosition = .camera(camera)
         }
@@ -469,8 +515,9 @@ struct LiveRideMapView: View {
         paddedBounds.size.width += horizontalPadding * 2
         paddedBounds.size.height += topPadding + bottomPadding
 
+        followPause.isPaused = true
         isFollowingUser = false
-        programmaticCameraTokens += 1
+        cameraGate.markProgrammatic()
         withAnimation(.easeInOut(duration: 0.45)) {
             cameraPosition = .rect(paddedBounds)
         }
@@ -487,5 +534,119 @@ struct MapPlaceCardVisibleKey: PreferenceKey {
     static var defaultValue = false
     static func reduce(value: inout Bool, nextValue: () -> Bool) {
         value = value || nextValue()
+    }
+}
+
+/// Collapses a burst of app-driven camera moves into one ignored callback.
+/// The next callback after that is the user's pan or zoom.
+struct MapProgrammaticCameraGate: Equatable {
+    private var generation = 0
+    private var consumedGeneration = 0
+
+    mutating func markProgrammatic() {
+        generation &+= 1
+    }
+
+    mutating func consumeIfProgrammatic() -> Bool {
+        guard generation != consumedGeneration else { return false }
+        consumedGeneration = generation
+        return true
+    }
+}
+
+/// Touch-down flag. A class so the map can see it before SwiftUI renders the next frame.
+private final class MapFollowPause {
+    var isPaused = false
+}
+
+/// Motorcycle puck plus a heading beam, the same idea as the cone in Maps.
+private struct RiderLocationMarker: View {
+    let headingDegrees: CLLocationDirection?
+    /// Camera heading. While riding the map is already turned to face the road, so the marker points up.
+    let mapHeadingDegrees: CLLocationDirection
+    let color: Color
+
+    private var rotation: Angle {
+        guard let headingDegrees else { return .zero }
+        return .degrees(headingDegrees - mapHeadingDegrees)
+    }
+
+    var body: some View {
+        ZStack {
+            if headingDegrees != nil {
+                HeadingBeam()
+                    .fill(
+                        LinearGradient(
+                            colors: [color.opacity(0.08), color.opacity(0.45)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                    .frame(width: 48, height: 42)
+                    .offset(y: -32)
+            }
+
+            Image(systemName: "motorcycle")
+                .font(.system(size: 18, weight: .bold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(color, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        }
+        .rotationEffect(rotation)
+        .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
+        .accessibilityLabel("Current location")
+    }
+}
+
+/// Wide end faces forward, tip sits on the rider. Same shape as the Maps heading cone.
+private struct HeadingBeam: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.midX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        path.closeSubpath()
+        return path
+    }
+}
+
+/// Sees a finger on the map without taking the touch away from MapKit.
+private struct MapInteractionSpy: UIViewRepresentable {
+    var isEnabled: Bool
+    var onUserInteraction: () -> Void
+
+    func makeUIView(context: Context) -> SpyView {
+        let view = SpyView()
+        view.isEnabled = isEnabled
+        view.onUserInteraction = onUserInteraction
+        return view
+    }
+
+    func updateUIView(_ uiView: SpyView, context: Context) {
+        uiView.isEnabled = isEnabled
+        uiView.onUserInteraction = onUserInteraction
+    }
+
+    final class SpyView: UIView {
+        var isEnabled = false
+        var onUserInteraction: () -> Void = {}
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            backgroundColor = .clear
+            isOpaque = false
+        }
+
+        required init?(coder: NSCoder) {
+            nil
+        }
+
+        override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+            if isEnabled, event != nil {
+                onUserInteraction()
+            }
+            return nil
+        }
     }
 }

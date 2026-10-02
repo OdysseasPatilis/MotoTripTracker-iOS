@@ -5,6 +5,20 @@ import Testing
 
 struct MotoTripTrackerTests {
 
+    @Test func cameraGateTreatsOnlyTheNextCallbackAsTheApps() {
+        var gate = MapProgrammaticCameraGate()
+        let idle = gate.consumeIfProgrammatic()
+        #expect(!idle)
+
+        gate.markProgrammatic()
+        gate.markProgrammatic()
+        gate.markProgrammatic()
+        let burst = gate.consumeIfProgrammatic()
+        let userPan = gate.consumeIfProgrammatic()
+        #expect(burst)
+        #expect(!userPan)
+    }
+
     @Test func speedFilterRejectsInaccurateLocations() {
         let filter = SpeedFilter()
         let bad = CLLocation(
