@@ -36,8 +36,8 @@ struct RideTrackerView: View {
     /// so the dial uses the live GPS speed.
     private func displayedSpeedKmh(riding: Bool, recorded: Double) -> Double {
         if riding { return recorded }
-        guard let speed = app.locationService.lastLocation?.speed, speed >= 0 else { return 0 }
-        return speed * 3.6
+        guard let location = app.locationService.lastLocation else { return 0 }
+        return SpeedFilter().processedSpeed(from: location) * 3.6
     }
 
     var body: some View {

@@ -147,7 +147,7 @@ Resources/ (in app)                       # athens_speed_limits.json
 | `TripManager.swift` | Orchestrates start/pause/resume/stop; processes each GPS fix |
 | `RideSessionState.swift` | Live session snapshot: stats + active/paused flags |
 | `TripStats.swift` | Live metrics + `GpsQuality` |
-| `SpeedFilter.swift` | Reject bad accuracy; kill GPS drift under ~3 km/h |
+| `SpeedFilter.swift` | Reject bad accuracy; kill GPS drift under ~7 km/h |
 | `SpeedSmoother.swift` | Smooth display speed |
 | `StopDetector.swift` | Split moving vs stopped time |
 | `ElevationSmoother.swift` | Filter elevation noise; accumulate gain |
@@ -374,7 +374,7 @@ These types are mostly framework-light (easy to unit test).
 
 | Algorithm | Source | Idea |
 | --- | --- | --- |
-| GPS validity | `SpeedFilter.swift` | Accuracy ≤ 15 m; ignore speeds &lt; ~0.83 m/s |
+| GPS validity | `SpeedFilter.swift` | Accuracy ≤ 15 m; ignore speeds &lt; ~2 m/s, and slow readings whose error bar includes zero |
 | Display speed | `SpeedSmoother.swift` | Smooth km/h while moving |
 | Moving vs stopped | `StopDetector.swift` | Accumulate timers from `isMoving` |
 | Teleport rejection | inside `TripManager` | Ignore huge jumps (e.g. &gt; 80 m) |

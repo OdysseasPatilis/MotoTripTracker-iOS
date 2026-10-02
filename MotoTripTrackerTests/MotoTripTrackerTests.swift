@@ -39,6 +39,49 @@ struct MotoTripTrackerTests {
             timestamp: Date()
         )
         #expect(filter.processedSpeed(from: drifting) == 0)
+
+        let standingIndoors = CLLocation(
+            coordinate: CLLocationCoordinate2D(latitude: 37.98, longitude: 23.72),
+            altitude: 100,
+            horizontalAccuracy: 5,
+            verticalAccuracy: 5,
+            course: 0,
+            speed: 5 / 3.6,
+            timestamp: Date()
+        )
+        #expect(filter.processedSpeed(from: standingIndoors) == 0)
+    }
+
+    @Test func speedFilterDropsSlowSpeedInsideItsErrorBar() {
+        let filter = SpeedFilter()
+        let noisy = CLLocation(
+            coordinate: CLLocationCoordinate2D(latitude: 37.98, longitude: 23.72),
+            altitude: 100,
+            horizontalAccuracy: 12,
+            verticalAccuracy: 5,
+            course: 0,
+            courseAccuracy: 10,
+            speed: 8 / 3.6,
+            speedAccuracy: 3,
+            timestamp: Date()
+        )
+        #expect(filter.processedSpeed(from: noisy) == 0)
+    }
+
+    @Test func speedFilterKeepsAConfidentSlowRoll() {
+        let filter = SpeedFilter()
+        let rolling = CLLocation(
+            coordinate: CLLocationCoordinate2D(latitude: 37.98, longitude: 23.72),
+            altitude: 100,
+            horizontalAccuracy: 5,
+            verticalAccuracy: 5,
+            course: 0,
+            courseAccuracy: 5,
+            speed: 10 / 3.6,
+            speedAccuracy: 0.3,
+            timestamp: Date()
+        )
+        #expect(filter.processedSpeed(from: rolling) > 2)
     }
 
     @Test func speedFilterDerivesSpeedWhenReportedInvalid() {

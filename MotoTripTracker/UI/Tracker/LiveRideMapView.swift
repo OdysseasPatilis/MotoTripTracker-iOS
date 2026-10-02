@@ -35,8 +35,8 @@ struct LiveRideMapView: View {
         if isRiding {
             return app.tripManager.sessionState.stats.speed
         }
-        guard let speed = app.locationService.lastLocation?.speed, speed >= 0 else { return 0 }
-        return speed * 3.6
+        guard let location = app.locationService.lastLocation else { return 0 }
+        return SpeedFilter().processedSpeed(from: location) * 3.6
     }
 
     var body: some View {
