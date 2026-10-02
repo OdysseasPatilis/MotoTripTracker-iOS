@@ -61,16 +61,35 @@ struct LiveRideMapView: View {
         let rider = app.locationService.lastLocation
         let riderCourse = rider?.course ?? -1
         let riderSpeed = rider?.speed ?? -1
-        let showsHeading = riderCourse >= 0 && riderSpeed >= SpeedFilter.stationaryFloorMps
+        let pointing = RiderPointing.degrees(
+            course: riderCourse,
+            speedMps: riderSpeed,
+            compassDegrees: app.locationService.lastHeadingDegrees
+        )
+        let mapHeading: CLLocationDirection = (isRiding && riderCourse >= 0) ? riderCourse : 0
 
         Map(position: $cameraPosition, selection: $mapSelection) {
-            UserAnnotation(anchor: .center) {
-                RiderLocationMarker(
-                    headingDegrees: showsHeading ? riderCourse : nil,
-                    mapHeadingDegrees: (isRiding && showsHeading) ? riderCourse : 0,
-                    color: colors.neonGreen
-                )
+            if let coordinate = rider?.coordinate, let pointing {
+                Annotation("", coordinate: coordinate, anchor: .center) {
+                    HeadingBeam()
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color(red: 0, green: 0.48, blue: 1).opacity(0.05),
+                                    Color(red: 0, green: 0.48, blue: 1).opacity(0.5)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
+                        .frame(width: 40, height: 36)
+                        .offset(y: -22)
+                        .rotationEffect(.degrees(pointing - mapHeading))
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
             }
+            UserAnnotation()
             routeOverlays(
                 previewItems: previewItems,
                 activeRoute: navigation.phase == .previewing ? [] : navigation.routeCoordinates,
@@ -559,43 +578,19 @@ private final class MapFollowPause {
     var isPaused = false
 }
 
-/// Motorcycle puck plus a heading beam, the same idea as the cone in Maps.
-private struct RiderLocationMarker: View {
-    let headingDegrees: CLLocationDirection?
-    /// Camera heading. While riding the map is already turned to face the road, so the marker points up.
-    let mapHeadingDegrees: CLLocationDirection
-    let color: Color
-
-    private var rotation: Angle {
-        guard let headingDegrees else { return .zero }
-        return .degrees(headingDegrees - mapHeadingDegrees)
-    }
-
-    var body: some View {
-        ZStack {
-            if headingDegrees != nil {
-                HeadingBeam()
-                    .fill(
-                        LinearGradient(
-                            colors: [color.opacity(0.08), color.opacity(0.45)],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-                    .frame(width: 48, height: 42)
-                    .offset(y: -32)
-            }
-
-            Image(systemName: "motorcycle")
-                .font(.system(size: 18, weight: .bold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .background(color, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+/// Direction the location cone should point. Course wins once you're actually moving;
+/// otherwise the compass shows where the phone is aimed.
+enum RiderPointing {
+    static func degrees(
+        course: CLLocationDirection,
+        speedMps: CLLocationSpeed,
+        compassDegrees: CLLocationDirection?
+    ) -> CLLocationDirection? {
+        if speedMps >= SpeedFilter.stationaryFloorMps, course >= 0 {
+            return course
         }
-        .rotationEffect(rotation)
-        .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
-        .accessibilityLabel("Current location")
+        guard let compassDegrees, compassDegrees >= 0 else { return nil }
+        return compassDegrees
     }
 }
 

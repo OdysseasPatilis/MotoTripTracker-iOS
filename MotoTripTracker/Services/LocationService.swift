@@ -11,6 +11,8 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
     private(set) var authorizationStatus: CLAuthorizationStatus = .notDetermined
     private(set) var isLocationEnabled = false
     private(set) var lastLocation: CLLocation?
+    /// Compass heading in degrees, when the device can report one. Negative means unknown.
+    private(set) var lastHeadingDegrees: CLLocationDirection?
 
     /// Monotonic counter bumped on every fix. `CLLocation` is not `Equatable`, so views
     /// observe this instead to react to new locations (e.g. to drive a follow camera).
@@ -39,6 +41,7 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
         manager.delegate = self
         manager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
         manager.distanceFilter = kCLDistanceFilterNone
+        manager.headingFilter = 5
         manager.activityType = .automotiveNavigation
         manager.pausesLocationUpdatesAutomatically = false
         applyBackgroundConfiguration(restartIfNeeded: false)
@@ -102,6 +105,7 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
     }
 
     func stopUpdating() {
+        manager.stopUpdatingHeading()
         guard isUpdating else {
             endBackgroundActivitySession()
             return
@@ -109,6 +113,7 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
         isUpdating = false
         wantsBackgroundUpdates = false
         manager.stopUpdatingLocation()
+        manager.stopUpdatingHeading()
         endBackgroundActivitySession()
         applyBackgroundConfiguration(restartIfNeeded: false)
         AppLogger.location.notice("Location updates stopped")
@@ -131,6 +136,8 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
     private func startIfAuthorized() {
         guard isUpdating, isLocationEnabled else { return }
         manager.startUpdatingLocation()
+        guard CLLocationManager.headingAvailable() else { return }
+        manager.startUpdatingHeading()
     }
 
     /// Configures background location safely. Setting `allowsBackgroundLocationUpdates = true`
@@ -230,6 +237,17 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
             )
         }
         onLocationUpdate?(location)
+    }
+
+    nonisolated func locationManager(_ manager: CLLocationManager, didUpdateHeading newHeading: CLHeading) {
+        let degrees = newHeading.trueHeading >= 0 ? newHeading.trueHeading : newHeading.magneticHeading
+        guard degrees >= 0 else { return }
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated {
+                guard self.isUpdating else { return }
+                self.lastHeadingDegrees = degrees
+            }
+        }
     }
 
     nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {

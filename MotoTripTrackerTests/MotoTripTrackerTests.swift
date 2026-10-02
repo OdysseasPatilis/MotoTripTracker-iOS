@@ -19,6 +19,15 @@ struct MotoTripTrackerTests {
         #expect(!userPan)
     }
 
+    @Test func riderPointingUsesCourseWhenMovingAndCompassWhenStill() {
+        let moving = RiderPointing.degrees(course: 90, speedMps: 8, compassDegrees: 10)
+        let standing = RiderPointing.degrees(course: -1, speedMps: 0, compassDegrees: 40)
+        let unknown = RiderPointing.degrees(course: -1, speedMps: 0, compassDegrees: nil)
+        #expect(moving == 90)
+        #expect(standing == 40)
+        #expect(unknown == nil)
+    }
+
     @Test func speedFilterRejectsInaccurateLocations() {
         let filter = SpeedFilter()
         let bad = CLLocation(
