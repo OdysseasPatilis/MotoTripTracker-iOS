@@ -86,10 +86,9 @@ struct RideTrackerView: View {
                                             colors: colors
                                         )
                                         .background {
-                                            Circle()
-                                                .fill(colors.bgCard.opacity(0.94))
+                                            Color.clear
                                                 .frame(width: 228, height: 228)
-                                                .shadow(color: .black.opacity(0.35), radius: 16, y: 6)
+                                                .glassEffect(.regular, in: .circle)
                                         }
                                         .frame(maxWidth: .infinity)
                                         .accessibilityElement(children: .combine)
@@ -104,7 +103,7 @@ struct RideTrackerView: View {
                                         }
                                         .padding(16)
                                         .frame(maxWidth: .infinity)
-                                        .background(colors.bgDeep, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                                        .glassEffect(.regular, in: .rect(cornerRadius: 20))
                                     }
                                     .padding(.horizontal, 10)
                                     .padding(.bottom, 8)

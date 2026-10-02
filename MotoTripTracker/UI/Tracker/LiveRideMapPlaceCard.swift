@@ -144,7 +144,7 @@ struct LiveRideMapPlaceCard: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .glassEffect(.regular, in: .rect(cornerRadius: 18))
     }
 
     private func labelRow(

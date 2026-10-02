@@ -124,8 +124,9 @@ struct LiveRideMapView: View {
                         .font(.body.weight(.semibold))
                         .foregroundStyle(colors.neonBlue)
                         .frame(width: 44, height: 44)
-                        .background(.ultraThinMaterial, in: Circle())
                 }
+                .buttonStyle(.plain)
+                .glassEffect(.regular.interactive(), in: .circle)
                 .accessibilityLabel("Recenter map on my location")
                 .padding(.trailing, 12)
                 .padding(.bottom, bottomChromePadding)

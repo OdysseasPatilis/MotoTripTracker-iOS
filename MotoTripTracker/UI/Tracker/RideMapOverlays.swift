@@ -49,7 +49,7 @@ struct RideMapTopOverlay: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .glassEffect(.regular, in: .rect(cornerRadius: 14))
                     .padding(.horizontal, 10)
             case let .failed(message):
                 Text(message)
@@ -58,7 +58,7 @@ struct RideMapTopOverlay: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .glassEffect(.regular, in: .rect(cornerRadius: 14))
                     .padding(.horizontal, 10)
             }
         }
@@ -76,7 +76,7 @@ struct RideMapTopOverlay: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(.ultraThinMaterial, in: Capsule())
+        .glassEffect(.regular, in: .capsule)
         .padding(.leading, 12)
         .padding(.top, 12)
     }
@@ -92,8 +92,9 @@ struct RideMapTopOverlay: View {
                 .font(.subheadline.weight(.bold))
                 .foregroundStyle(colors.routeAmber)
                 .frame(width: 42, height: 42)
-                .background(.ultraThinMaterial, in: Circle())
+                .glassEffect(.regular.interactive(), in: .circle)
         }
+        .buttonStyle(.plain)
         .accessibilityLabel("Allow Always Location")
     }
 
@@ -136,8 +137,9 @@ struct RideMapTopOverlay: View {
                 .font(.headline.weight(.bold))
                 .foregroundStyle(colors.textPrimary)
                 .frame(width: 42, height: 42)
-                .background(.ultraThinMaterial, in: Circle())
+                .glassEffect(.regular.interactive(), in: .circle)
         }
+        .buttonStyle(.plain)
         .padding(.trailing, 12)
         .padding(.top, 12)
         .accessibilityLabel("Options")
@@ -350,7 +352,7 @@ struct RideMapTopOverlay: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .glassEffect(.regular, in: .rect(cornerRadius: 14))
         .accessibilityLabel(alert.bannerText)
     }
 }
@@ -415,7 +417,7 @@ struct RideMapBottomOverlay: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 14))
         }
         .buttonStyle(.plain)
     }
@@ -437,8 +439,10 @@ struct RideMapBottomOverlay: View {
                     .foregroundStyle(colors.textSecondary)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 12)
-                    .background(.ultraThinMaterial, in: Capsule())
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                .buttonStyle(.plain)
+                .glassEffect(.regular.interactive(), in: .capsule)
 
                 Button {
                     showPetrolPicker = true
@@ -447,8 +451,9 @@ struct RideMapBottomOverlay: View {
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(fuel.isLowFuel ? colors.neonRed : colors.neonGreen)
                         .frame(width: 44, height: 44)
-                        .background(.ultraThinMaterial, in: Circle())
                 }
+                .buttonStyle(.plain)
+                .glassEffect(.regular.interactive(), in: .circle)
                 .accessibilityLabel("Nearest petrol")
             }
 
@@ -466,7 +471,7 @@ struct RideMapBottomOverlay: View {
             .foregroundStyle(fuel.isLowFuel ? colors.neonRed : colors.textSecondary)
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
-            .background(.ultraThinMaterial, in: Capsule())
+            .glassEffect(.regular, in: .capsule)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal, 2)
@@ -494,7 +499,7 @@ struct RideMapBottomOverlay: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .glassEffect(.regular, in: .rect(cornerRadius: 14))
     }
 
     private var routePreviewCard: some View {
@@ -594,7 +599,7 @@ struct RideMapBottomOverlay: View {
             }
         }
         .padding(12)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .glassEffect(.regular, in: .rect(cornerRadius: 16))
         .padding(.horizontal, 2)
     }
 }
