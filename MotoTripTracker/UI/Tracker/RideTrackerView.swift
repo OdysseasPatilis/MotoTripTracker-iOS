@@ -58,6 +58,7 @@ struct RideTrackerView: View {
 
         GeometryReader { _ in
             LiveRideMapView()
+                .ignoresSafeArea(edges: navigating ? [] : .bottom)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .overlay(alignment: .top) {
                     RideMapTopOverlay(
@@ -120,7 +121,13 @@ struct RideTrackerView: View {
                                 showPetrolPicker: $showPetrolPicker,
                                 timingBanner: $timingBanner
                             )
+                            RideControlsBar(
+                                session: session,
+                                colors: colors,
+                                discardBanner: $discardBanner
+                            )
                         }
+                        .safeAreaPadding(.bottom, 4)
                     }
                 }
                 .clipped()
@@ -132,12 +139,6 @@ struct RideTrackerView: View {
             if navigating {
                 NavigationGlanceBar(
                     session: session,
-                    discardBanner: $discardBanner
-                )
-            } else {
-                RideControlsBar(
-                    session: session,
-                    colors: colors,
                     discardBanner: $discardBanner
                 )
             }

@@ -21,50 +21,56 @@ struct RideControlsBar: View {
                         systemImage: session.isPaused ? "play.fill" : "pause.fill"
                     )
                     .font(.headline)
+                    .foregroundStyle(colors.textPrimary)
                     .frame(maxWidth: .infinity)
                     .frame(height: 50)
                 }
-                .buttonStyle(.bordered)
-                .tint(colors.textPrimary)
+                .buttonStyle(.plain)
+                .glassEffect(.regular.interactive(), in: .capsule)
 
-                Button(role: .destructive) {
-                    let saved = app.stopRide()
-                    if !saved {
-                        withAnimation {
-                            discardBanner = "Ride too short — not saved"
-                        }
-                        Task {
-                            try? await Task.sleep(for: .seconds(2.5))
-                            withAnimation { discardBanner = nil }
-                        }
-                    }
+                Button {
+                    stopRide(discardBanner: $discardBanner)
                 } label: {
                     Label("Stop", systemImage: "stop.fill")
                         .font(.headline)
+                        .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
                         .frame(height: 50)
+                        .background(colors.stopRed, in: Capsule())
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(colors.stopRed)
+                .buttonStyle(.plain)
             } else {
                 let enabled = app.locationService.isLocationEnabled
                 Button {
                     app.startRide()
                 } label: {
                     Text(enabled ? "Start Ride" : "Enable GPS to Start")
-                        .font(.headline)
+                        .font(.headline.weight(.bold))
+                        .foregroundStyle(Color(hex: 0x06281F))
                         .frame(maxWidth: .infinity)
                         .frame(height: 50)
+                        .background(colors.neonGreen, in: Capsule())
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(colors.neonGreen)
+                .buttonStyle(.plain)
                 .disabled(!enabled)
+                .opacity(enabled ? 1 : 0.45)
             }
         }
         .padding(.horizontal, 16)
-        .padding(.top, 8)
-        .padding(.bottom, 8)
-        .glassEffect(.regular, in: .rect)
+        .padding(.top, 4)
+        .padding(.bottom, 4)
+    }
+
+    private func stopRide(discardBanner: Binding<String?>) {
+        let saved = app.stopRide()
+        guard !saved else { return }
+        withAnimation {
+            discardBanner.wrappedValue = "Ride too short — not saved"
+        }
+        Task {
+            try? await Task.sleep(for: .seconds(2.5))
+            withAnimation { discardBanner.wrappedValue = nil }
+        }
     }
 }
 

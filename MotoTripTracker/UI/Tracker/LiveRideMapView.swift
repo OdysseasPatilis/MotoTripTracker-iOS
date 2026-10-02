@@ -53,7 +53,7 @@ struct LiveRideMapView: View {
         let showsMainDial = navigation.phase == .idle && selectedPlace == nil
         let bottomChromePadding: CGFloat = {
             if showsGlanceDial { return 230 }
-            if showsMainDial { return 440 }
+            if showsMainDial { return 530 }
             return 100
         }()
         let routeColor = navigation.isNavigating ? NavigationHUDChrome.route : colors.neonBlue
@@ -148,7 +148,7 @@ struct LiveRideMapView: View {
                     onGo: { startNavigation(to: selectedPlace) }
                 )
                     .padding(.horizontal, 10)
-                    .padding(.bottom, 100)
+                    .padding(.bottom, 120)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
