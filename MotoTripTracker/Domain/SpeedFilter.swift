@@ -9,6 +9,8 @@ struct SpeedFilter: Sendable {
     private let minSpeedMps: CLLocationSpeed = stationaryFloorMps
     /// Above the floor, still drop a reading whose uncertainty includes zero, up to ~14 km/h.
     private let noiseBandMps: CLLocationSpeed = 4
+    /// A motorcycle GPS fix above this is a spike, not a top speed.
+    static let maxPlausibleSpeedKmh = 300.0
 
     func isValid(_ location: CLLocation) -> Bool {
         location.horizontalAccuracy >= 0 && location.horizontalAccuracy <= minAccuracyMeters
@@ -17,14 +19,21 @@ struct SpeedFilter: Sendable {
     func processedSpeed(from location: CLLocation, previous: CLLocation? = nil) -> CLLocationSpeed {
         let reported = location.speed
         if reported >= 0 {
-            return isStationaryNoise(reported, speedAccuracy: location.speedAccuracy) ? 0 : reported
+            return credible(reported, speedAccuracy: location.speedAccuracy)
         }
         // Core Location often reports speed = -1 in background or after wake.
         guard let previous else { return 0 }
         let timeDelta = location.timestamp.timeIntervalSince(previous.timestamp)
         guard timeDelta > 0 else { return 0 }
         let computed = previous.distance(from: location) / timeDelta
-        return computed < minSpeedMps ? 0 : computed
+        return credible(computed, speedAccuracy: -1)
+    }
+
+    /// Zero when the fix is standing-still noise or faster than a real ride.
+    private func credible(_ speed: CLLocationSpeed, speedAccuracy: CLLocationSpeed) -> CLLocationSpeed {
+        if isStationaryNoise(speed, speedAccuracy: speedAccuracy) { return 0 }
+        if speed * 3.6 > Self.maxPlausibleSpeedKmh { return 0 }
+        return speed
     }
 
     /// A fix is noise when it is below a walking pace, or slow and no more certain than zero.

@@ -120,7 +120,7 @@ struct MotoTripTrackerTests {
             timestamp: t0
         )
         let next = CLLocation(
-            coordinate: CLLocationCoordinate2D(latitude: 37.981, longitude: 23.72),
+            coordinate: CLLocationCoordinate2D(latitude: 37.98015, longitude: 23.72),
             altitude: 100,
             horizontalAccuracy: 5,
             verticalAccuracy: 5,
@@ -129,7 +129,22 @@ struct MotoTripTrackerTests {
             timestamp: t0.addingTimeInterval(1)
         )
         let derived = filter.processedSpeed(from: next, previous: previous)
-        #expect(derived > 0.83)
+        #expect(derived > 2)
+        #expect(derived * 3.6 < SpeedFilter.maxPlausibleSpeedKmh)
+    }
+
+    @Test func speedFilterDropsAnImpossibleSpike() {
+        let filter = SpeedFilter()
+        let spike = CLLocation(
+            coordinate: CLLocationCoordinate2D(latitude: 37.98, longitude: 23.72),
+            altitude: 100,
+            horizontalAccuracy: 8,
+            verticalAccuracy: 5,
+            course: 0,
+            speed: 356 / 3.6,
+            timestamp: Date()
+        )
+        #expect(filter.processedSpeed(from: spike) == 0)
     }
 
     @Test func stopDetectorCountsMovingWhenSpeedAboveThreshold() {

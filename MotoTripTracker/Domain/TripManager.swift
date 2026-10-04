@@ -31,7 +31,7 @@ final class TripManager {
     private var lastWasMoving = false
 
     private static let movingSpeedMps = 0.1
-    private static let maxPlausibleSpeedKmh = 300.0
+    private static let maxPlausibleSpeedKmh = SpeedFilter.maxPlausibleSpeedKmh
     /// Readable from default-parameter evaluation (nonisolated) under MainActor isolation.
     nonisolated static let minSaveDistanceMeters: Double = 50
 
