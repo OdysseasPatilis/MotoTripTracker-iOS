@@ -147,6 +147,35 @@ struct MotoTripTrackerTests {
         #expect(filter.processedSpeed(from: spike) == 0)
     }
 
+    @Test func peakRushIgnoresASingleGpsSpike() {
+        let start = 1_000.0
+        var points: [RoutePoint] = []
+        for i in 0..<8 {
+            points.append(
+                RoutePoint(
+                    latitude: 37.98,
+                    longitude: 23.72 + Double(i) * 0.0001,
+                    altitude: 10,
+                    speedMps: 12,
+                    timestamp: start + Double(i)
+                )
+            )
+        }
+        points.append(
+            RoutePoint(
+                latitude: 37.98,
+                longitude: 23.721,
+                altitude: 10,
+                speedMps: 356 / 3.6,
+                timestamp: start + 8
+            )
+        )
+        let trip = Trip(startTime: start, maxSpeed: 43)
+        let moments = RideMomentsCalculator.calculate(trip: trip, points: points)
+        let peak = moments.moments.first { $0.id == "peak-speed" }
+        #expect(peak?.value == "43 km/h")
+    }
+
     @Test func stopDetectorCountsMovingWhenSpeedAboveThreshold() {
         let detector = StopDetector()
         var moving: Int64 = 0

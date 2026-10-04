@@ -68,7 +68,7 @@ enum RideMomentsCalculator {
     // MARK: - Story moments from the route
 
     private static func topSpeedHighlight(_ points: [RoutePoint], rideStart: TimeInterval) -> RideMoment? {
-        guard let best = points.max(by: { $0.speedMps < $1.speedMps }), best.speedMps > 1 else { return nil }
+        guard let best = crediblePeak(points), best.speedMps > 1 else { return nil }
         let kmh = Int((best.speedMps * 3.6).rounded())
         let elapsed = max(0, best.timestamp - rideStart)
         let distance = distanceAlongRoute(to: best, in: points)
@@ -81,6 +81,37 @@ enum RideMomentsCalculator {
         )
     }
 
+    /// Fastest sample that a nearby fix agrees with. A lone 356 km/h blip is not a peak.
+    private static func crediblePeak(_ points: [RoutePoint]) -> RoutePoint? {
+        var best: RoutePoint?
+        for index in points.indices {
+            let point = points[index]
+            guard isPlausibleSpeed(point.speedMps), isSupportedSpeed(points, index: index) else { continue }
+            if point.speedMps > (best?.speedMps ?? 0) {
+                best = point
+            }
+        }
+        return best
+    }
+
+    private static func isPlausibleSpeed(_ speedMps: Double) -> Bool {
+        speedMps >= 0 && speedMps * 3.6 <= SpeedFilter.maxPlausibleSpeedKmh
+    }
+
+    /// True when another fix within a few seconds is in the same speed band.
+    private static func isSupportedSpeed(_ points: [RoutePoint], index: Int) -> Bool {
+        let speed = points[index].speedMps
+        let time = points[index].timestamp
+        let support = points.enumerated().compactMap { offset, point -> Double? in
+            guard offset != index, abs(point.timestamp - time) <= 4, isPlausibleSpeed(point.speedMps) else {
+                return nil
+            }
+            return point.speedMps
+        }.max()
+        guard let support else { return speed * 3.6 <= 80 }
+        return support >= speed * 0.55 || speed - support <= 12
+    }
+
     /// Strongest GPS Δv/Δt spike along the route (timed), not just the trip max G number.
     private static func hardestPull(_ points: [RoutePoint], rideStart: TimeInterval) -> RideMoment? {
         guard points.count >= 3 else { return nil }
@@ -90,6 +121,7 @@ enum RideMomentsCalculator {
         for i in 1..<points.count {
             let dt = points[i].timestamp - points[i - 1].timestamp
             guard dt > 0.2, dt < 5 else { continue }
+            guard isPlausibleSpeed(points[i].speedMps), isPlausibleSpeed(points[i - 1].speedMps) else { continue }
             let dv = points[i].speedMps - points[i - 1].speedMps
             guard dv > 0 else { continue }
             let g = min(dv / dt / 9.81, 1.2)
@@ -187,10 +219,9 @@ enum RideMomentsCalculator {
             let span = points[right].timestamp - points[left].timestamp
             guard span >= cruiseWindowSeconds * 0.75 else { continue }
 
-            var sum = 0.0
-            let count = Double(right - left + 1)
-            for i in left...right { sum += points[i].speedMps }
-            let avgKmh = (sum / count) * 3.6
+            let samples = (left...right).map { points[$0].speedMps }.filter(isPlausibleSpeed)
+            guard !samples.isEmpty else { continue }
+            let avgKmh = (samples.reduce(0, +) / Double(samples.count)) * 3.6
             if avgKmh > bestAvg {
                 bestAvg = avgKmh
                 bestEnd = points[right].timestamp
