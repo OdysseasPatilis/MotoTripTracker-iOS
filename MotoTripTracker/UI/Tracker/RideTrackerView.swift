@@ -7,6 +7,7 @@ struct RideTrackerView: View {
     @Environment(AppContainer.self) private var app
     @Environment(ThemeStore.self) private var theme
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dashboardIsVisible) private var dashboardIsVisible
     @State private var batteryLevel = BatteryReader.currentLevel()
     @State private var discardBanner: String?
     @State private var showDestinationSearch = false
@@ -21,6 +22,7 @@ struct RideTrackerView: View {
 
     /// Prefer live Core Location accuracy so the toolbar updates even when idle.
     private var dashboardGpsAccuracy: Double? {
+        guard dashboardIsVisible else { return nil }
         let accuracy = app.locationService.lastLocation?.horizontalAccuracy
         guard let accuracy, accuracy >= 0 else {
             return app.tripManager.sessionState.stats.gpsAccuracyMeters
@@ -54,7 +56,9 @@ struct RideTrackerView: View {
 
         let navigating = app.navigationService.isNavigating
         let showsMainDial = app.navigationService.phase == .idle && !mapPlaceCardVisible
-        let speedKmh = displayedSpeedKmh(riding: riding, recorded: stats.speed)
+        let speedKmh = dashboardIsVisible
+            ? displayedSpeedKmh(riding: riding, recorded: stats.speed)
+            : 0
 
         GeometryReader { _ in
             LiveRideMapView()

@@ -29,9 +29,22 @@ struct RootNavigationView: View {
                 }
         }
         .environment(\.appNavigate) { path.append($0) }
+        .environment(\.dashboardIsVisible, path.isEmpty)
         .tint(theme.palette.neonGreen)
         .preferredColorScheme(theme.mode.colorScheme)
         .animation(.easeInOut(duration: 0.25), value: theme.mode)
+    }
+}
+
+private struct DashboardIsVisibleKey: EnvironmentKey {
+    static let defaultValue = true
+}
+
+extension EnvironmentValues {
+    /// False while History, Summary, or another pushed screen covers the live map.
+    var dashboardIsVisible: Bool {
+        get { self[DashboardIsVisibleKey.self] }
+        set { self[DashboardIsVisibleKey.self] = newValue }
     }
 }
 

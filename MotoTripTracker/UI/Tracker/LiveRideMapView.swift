@@ -15,6 +15,7 @@ import os
 struct LiveRideMapView: View {
     @Environment(AppContainer.self) private var app
     @Environment(ThemeStore.self) private var theme
+    @Environment(\.dashboardIsVisible) private var dashboardIsVisible
 
     @State private var cameraPosition: MapCameraPosition = .userLocation(fallback: .automatic)
     @State private var isFollowingUser = true
@@ -37,6 +38,7 @@ struct LiveRideMapView: View {
     /// Smoothed trip speed once a ride is recording. Before Start, TripManager
     /// publishes 0, so the dial uses the live GPS speed instead.
     private var glanceSpeedKmh: Double {
+        guard dashboardIsVisible else { return 0 }
         if isRiding {
             return app.tripManager.sessionState.stats.speed
         }
@@ -60,13 +62,13 @@ struct LiveRideMapView: View {
         }()
         let routeColor = navigation.isNavigating ? NavigationHUDChrome.route : colors.neonBlue
 
-        let rider = app.locationService.lastLocation
+        let rider = dashboardIsVisible ? app.locationService.lastLocation : nil
         let riderCourse = rider?.course ?? -1
         let riderSpeed = rider?.speed ?? -1
         let pointing = RiderPointing.degrees(
             course: riderCourse,
             speedMps: riderSpeed,
-            compassDegrees: app.locationService.lastHeadingDegrees
+            compassDegrees: dashboardIsVisible ? app.locationService.lastHeadingDegrees : nil
         )
         let mapHeading: CLLocationDirection = (isRiding && riderCourse >= 0) ? riderCourse : 0
 
@@ -104,7 +106,7 @@ struct LiveRideMapView: View {
                 destinationAnnotation(coordinate: destination, color: colors.neonBlue)
             }
             cameraAnnotations(
-                cameras: app.trafficCameraService.mapCameras,
+                cameras: dashboardIsVisible ? app.trafficCameraService.mapCameras : [],
                 speedColor: colors.routeAmber,
                 redLightColor: colors.neonBlue
             )
@@ -217,8 +219,12 @@ struct LiveRideMapView: View {
                 updateCamera(location: app.locationService.lastLocation)
             }
         }
-        .onChange(of: app.locationService.updateTick) { _, _ in
-            guard isFollowingUser, !followPause.isPaused else { return }
+        .onChange(of: dashboardIsVisible ? app.locationService.updateTick : 0) { _, _ in
+            guard dashboardIsVisible, isFollowingUser, !followPause.isPaused else { return }
+            updateCamera(location: app.locationService.lastLocation)
+        }
+        .onChange(of: dashboardIsVisible) { _, visible in
+            guard visible, isFollowingUser, !followPause.isPaused else { return }
             updateCamera(location: app.locationService.lastLocation)
         }
         .onChange(of: isRiding) { _, riding in
