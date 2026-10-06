@@ -86,6 +86,7 @@ The app is the iOS counterpart of the Android **MotoTripTracker** project, with 
 
 ### History & trip meta
 - Chronological ride list grouped by day — **Today**, **Yesterday**, then **`dd/MM/yyyy`** — with time-only rows inside each section
+- Opening History, the leaderboard, or a summary leaves the live map mounted underneath, but that map stops redrawing for GPS, compass, and camera updates until you go back
 - **All / Favorites** tabs
 - Native **search** and date filters (today, yesterday, week, month, **custom range**)
 - Rename rides and mark favorites (including swipe actions)
@@ -97,9 +98,9 @@ The app is the iOS counterpart of the Android **MotoTripTracker** project, with 
 - Gold / silver / bronze badges for the top three ranks
 
 ### Summary & sharing
-- Stats overview (including **twistiness** rating) and **Ride Moments** (timed highlights: peak rush, climbs, pauses, cruise windows, twisties — distinct from Stats)
-- Map preview with encoded polyline
-- **Share card** image: MapKit route snapshot, compact stats strip (max speed, twistiness, corners, moving time), and top moments; plus **GPX** export
+- Stats overview (including **twistiness** rating) appears as soon as the screen opens. **Ride Moments** (timed highlights: peak rush, climbs, pauses, cruise windows, twisties — distinct from Stats) and the map follow on the next turn, so a long ride does not stall the push
+- Map preview keeps the shape of the ride with at most 240 points, not every stored GPS fix
+- **Share Card** and **Export GPX** are on the share button (MapKit route snapshot, compact stats strip, and top moments). Rename, Replay Route, and Delete stay in the menu
 - **Upload to server** when Cloud Sync is configured (see above)
 - **Replay route** from summary menu — opens the full route view with playback controls
 

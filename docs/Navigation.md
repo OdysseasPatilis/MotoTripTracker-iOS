@@ -4,7 +4,7 @@ How MotoTripTracker builds a driving route, follows it while you ride, speaks th
 
 This is Apple MapKit navigation inside the ride screen. It is not Google Maps, and it does not have Google's road network. MapKit returns one planned polyline. The app then keeps you on that line. When you have clearly left it, MapKit is asked for a new route from where you are.
 
-Last updated: 2026-09-30.
+Last updated: 2026-10-06.
 
 ## What you see
 
@@ -44,7 +44,7 @@ The ride recorder, speed limit, and fuel tracker keep running the whole time. Na
 | Full-screen map while guiding | `MotoTripTracker/UI/Tracker/RideTrackerView.swift` |
 | Camera distance while navigating | `MotoTripTracker/Utilities/RideFollowCameraPolicy.swift` |
 
-`NavigationService` is `@Observable` and `@MainActor`. SwiftUI reads its properties and redraws. There is no separate navigation view model.
+`NavigationService` is `@Observable` and `@MainActor`. SwiftUI reads its properties and redraws. There is no separate navigation view model. While History, a summary, or another pushed screen covers the dashboard, the live map stays mounted but stops following GPS, heading, and camera updates until you come back.
 
 ## Phases
 

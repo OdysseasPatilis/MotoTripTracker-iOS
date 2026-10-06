@@ -313,6 +313,7 @@ HUD-style layout (the system navigation bar is hidden on the tracker; History, L
 - While guiding: the same full-screen map. The large dial steps aside for the turn banner, tick-mark speed dial, and Dist / Avg / Left bar
 - Sheets: destination search, petrol, weather, fuel settings
 - Options menu when idle: History, Leaderboard, fuel, cloud sync, petrol, theme. While guiding, those items plus voice, weather, Apple Maps, and End Navigation live in the banner's menu
+- History, Leaderboard, Summary, and the full-route screen are pushed on top of this dashboard. The live map stays in the tree, but while `path` is not empty it does not read GPS, heading, or traffic-camera updates (`dashboardIsVisible`). Coming back resumes the follow camera
 
 **Glance HUD while guiding:**
 - **Turn banner:** maneuver arrow, large distance, street or short maneuver underneath (`NavigationCueFormatting`)
@@ -507,6 +508,8 @@ Data is **local only** (no iCloud sync in this codebase yet).
 | Replay play/pause/scrub | `Domain/RouteReplayEngine.swift` + `FullRouteView` |
 
 Leaderboard is **personal** (your rides only), not a global social board.
+
+Opening a summary shows the saved trip stats immediately. Route points, the map preview, and moments load after the push animation has started. The preview draws at most 240 points so the shape of the ride stays visible without plotting every fix. Peak rush still ignores a lone GPS spike; it only compares fixes a few seconds away. History day headings and row times reuse cached formatters.
 
 ---
 
