@@ -22,6 +22,8 @@ struct LiveRideMapView: View {
     @State private var cameraGate = MapProgrammaticCameraGate()
     /// Set on touch-down, before the next GPS fix can snap the camera back.
     @State private var followPause = MapFollowPause()
+    /// Ride start resizes the map. Ignore those camera callbacks so follow stays on the dot.
+    @State private var suppressFollowReleaseUntil = Date.distantPast
     @State private var mapSelection: MapSelection<MKMapItem>?
     @State private var selectedPlace: PickedMapPlace?
     @State private var isResolvingPlace = false
@@ -109,7 +111,7 @@ struct LiveRideMapView: View {
         }
         .mapStyle(
             .standard(
-                elevation: isRiding ? .realistic : .flat,
+                elevation: navigation.isNavigating ? .realistic : .flat,
                 pointsOfInterest: .all,
                 showsTraffic: true
             )
@@ -188,7 +190,9 @@ struct LiveRideMapView: View {
             let wasProgrammatic = cameraGate.consumeIfProgrammatic()
 
             var following = isFollowingUser && !followPause.isPaused
+            let suppressRelease = Date() < suppressFollowReleaseUntil
             if !wasProgrammatic,
+               !suppressRelease,
                app.navigationService.phase != .previewing,
                following {
                 followPause.isPaused = true
@@ -218,10 +222,9 @@ struct LiveRideMapView: View {
             updateCamera(location: app.locationService.lastLocation)
         }
         .onChange(of: isRiding) { _, riding in
-            // Starting/stopping a ride also flips map elevation (.flat ↔ .realistic).
-            // That MapKit camera churn can look like a user pan and clear follow —
-            // especially painful when starting a ride without navigation preview,
-            // which has no other path that re-asserts follow + 3D framing.
+            // Starting a ride changes the bottom controls and the map size.
+            // That camera nudge is not a pan — keep the view locked on the dot.
+            suppressFollowReleaseUntil = Date().addingTimeInterval(1.2)
             if riding {
                 followPause.isPaused = false
                 isFollowingUser = true
@@ -468,18 +471,32 @@ struct LiveRideMapView: View {
         let camera: MapCamera
         let navigation = app.navigationService
         let isNavigating = navigation.isNavigating
-        if isRiding {
+        if isRiding && !isNavigating {
+            // Stay on the location dot. Look-ahead would slide it off the point that is moving.
+            let mainDialVisible = navigation.phase == .idle && selectedPlace == nil
+            let center = mainDialVisible
+                ? RideFollowCameraPolicy.idleCenterAboveBottomDial(
+                    rider: location.coordinate,
+                    cameraDistanceMeters: 1400
+                )
+                : location.coordinate
+            camera = MapCamera(
+                centerCoordinate: center,
+                distance: 1400,
+                heading: 0,
+                pitch: 0
+            )
+        } else if isRiding {
             let speedKmh = max(location.speed, 0) * 3.6
             let heading = location.course >= 0 ? location.course : 0
-            let glanceDialVisible = isNavigating && selectedPlace == nil
-            let mainDialVisible = !isNavigating && navigation.phase == .idle && selectedPlace == nil
+            let glanceDialVisible = selectedPlace == nil
             let center = RideFollowCameraPolicy.centerCoordinate(
                 rider: location.coordinate,
                 courseDegrees: location.course,
                 speedKmh: speedKmh,
                 isNavigating: isNavigating,
-                keepsRiderAboveBottomChrome: glanceDialVisible || mainDialVisible,
-                bottomChromeScale: mainDialVisible ? 0.4 : 0.62
+                keepsRiderAboveBottomChrome: glanceDialVisible,
+                bottomChromeScale: 0.62
             )
             let distance = RideFollowCameraPolicy.cameraDistanceMeters(
                 speedKmh: speedKmh,
