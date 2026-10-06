@@ -88,11 +88,7 @@ enum RideHistoryQuery {
         if calendar.isDate(dayStart, inSameDayAs: yesterday) {
             return "Yesterday"
         }
-        let formatter = DateFormatter()
-        formatter.locale = calendar.locale ?? .current
-        formatter.timeZone = calendar.timeZone
-        formatter.dateFormat = "dd/MM/yyyy"
-        return formatter.string(from: dayStart)
+        return RideFormatters.dayHeading(dayStart, calendar: calendar)
     }
 
     static func endOfDay(_ date: Date, calendar: Calendar = .current) -> Date {
