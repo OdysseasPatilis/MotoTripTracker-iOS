@@ -98,17 +98,27 @@ enum RideMomentsCalculator {
         speedMps >= 0 && speedMps * 3.6 <= SpeedFilter.maxPlausibleSpeedKmh
     }
 
-    /// True when another fix within a few seconds is in the same speed band.
+    /// True when another nearby fix is in the same speed band.
+    /// Points are time-sorted, so only the samples a few seconds away are checked.
     private static func isSupportedSpeed(_ points: [RoutePoint], index: Int) -> Bool {
         let speed = points[index].speedMps
         let time = points[index].timestamp
-        let support = points.enumerated().compactMap { offset, point -> Double? in
-            guard offset != index, abs(point.timestamp - time) <= 4, isPlausibleSpeed(point.speedMps) else {
-                return nil
+        var support = -1.0
+        var cursor = index - 1
+        while cursor >= 0, time - points[cursor].timestamp <= 4 {
+            if isPlausibleSpeed(points[cursor].speedMps) {
+                support = max(support, points[cursor].speedMps)
             }
-            return point.speedMps
-        }.max()
-        guard let support else { return speed * 3.6 <= 80 }
+            cursor -= 1
+        }
+        cursor = index + 1
+        while cursor < points.count, points[cursor].timestamp - time <= 4 {
+            if isPlausibleSpeed(points[cursor].speedMps) {
+                support = max(support, points[cursor].speedMps)
+            }
+            cursor += 1
+        }
+        guard support >= 0 else { return speed * 3.6 <= 80 }
         return support >= speed * 0.55 || speed - support <= 12
     }
 

@@ -10,29 +10,20 @@ struct RideSummaryView: View {
 
     let tripID: UUID
     @Query private var trips: [Trip]
-    @Query private var storedPoints: [RoutePoint]
     @State private var showDeleteConfirm = false
     @State private var showRename = false
     @State private var renameText = ""
-    @State private var mapPosition: MapCameraPosition = .automatic
     @State private var uploadStatus: CloudUploadStatus = .idle
+    /// Route points and the map wait until the push animation has started.
+    @State private var routeReady = false
 
     init(tripID: UUID) {
         self.tripID = tripID
         let id = tripID
         _trips = Query(filter: #Predicate<Trip> { $0.id == id })
-        _storedPoints = Query(
-            filter: #Predicate<RoutePoint> { $0.trip?.id == id },
-            sort: [SortDescriptor(\.timestamp)]
-        )
     }
 
     private var trip: Trip? { trips.first }
-
-    private var moments: RideMoments {
-        guard let trip else { return RideMoments(moments: []) }
-        return RideMomentsCalculator.calculate(trip: trip, points: storedPoints)
-    }
 
     private enum CloudUploadStatus: Equatable {
         case idle
@@ -60,10 +51,17 @@ struct RideSummaryView: View {
                         .listRowBackground(Color.clear)
                     }
 
-                    Section {
-                        mapPreviewCard(trip, colors: colors)
-                            .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
-                            .listRowBackground(Color.clear)
+                    if routeReady {
+                        RideSummaryRouteContent(trip: trip, tripID: tripID, colors: colors)
+                    } else {
+                        Section {
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .fill(colors.mapCardBg)
+                                .frame(height: 180)
+                                .overlay { ProgressView().tint(colors.neonGreen) }
+                                .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+                                .listRowBackground(Color.clear)
+                        }
                     }
 
                     Section("Stats") {
@@ -78,16 +76,6 @@ struct RideSummaryView: View {
                         summaryRow("Lateral G", String(format: "%.2f G", trip.maxLateralGForce), valueColor: colors.neonBlue, colors: colors)
                         summaryRow("Corners", "\(trip.cornerCount)", valueColor: colors.neonGreen, colors: colors)
                         twistinessRow(trip, colors: colors)
-                    }
-
-                    if !moments.moments.isEmpty {
-                        Section {
-                            ForEach(moments.moments) { moment in
-                                MomentRow(moment: moment, colors: colors)
-                            }
-                        } header: {
-                            Text("Moments")
-                        }
                     }
 
                     if BackendSettings.isEnabled {
@@ -129,6 +117,10 @@ struct RideSummaryView: View {
             }
         }
         .background(colors.bgDeep.ignoresSafeArea())
+        .task {
+            await Task.yield()
+            routeReady = true
+        }
         .navigationTitle("Summary")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
@@ -145,16 +137,6 @@ struct RideSummaryView: View {
                     .accessibilityLabel(trip.isFavorite ? "Remove favorite" : "Add favorite")
 
                     Menu {
-                        Button {
-                            RideShareHelper.shareCardImage(trip: trip, moments: moments, points: storedPoints)
-                        } label: {
-                            Label("Share Card", systemImage: "square.and.arrow.up")
-                        }
-                        Button {
-                            RideShareHelper.shareGPX(trip: trip, points: storedPoints)
-                        } label: {
-                            Label("Export GPX", systemImage: "point.topleft.down.to.point.bottomright.curvepath")
-                        }
                         Button {
                             renameText = trip.title ?? ""
                             showRename = true
@@ -264,11 +246,75 @@ struct RideSummaryView: View {
         }
     }
 
-    @ViewBuilder
-    private func mapPreviewCard(_ trip: Trip, colors: AppPalette) -> some View {
-        let coords = routeCoordinates(for: trip)
+}
 
-        ZStack(alignment: .bottomLeading) {
+/// Map and moments load after the summary is on screen, so the push is not waiting on every GPS point.
+private struct RideSummaryRouteContent: View {
+    let trip: Trip
+    let tripID: UUID
+    let colors: AppPalette
+
+    @Query private var storedPoints: [RoutePoint]
+    @State private var mapPosition: MapCameraPosition = .automatic
+    @State private var moments = RideMoments(moments: [])
+
+    init(trip: Trip, tripID: UUID, colors: AppPalette) {
+        self.trip = trip
+        self.tripID = tripID
+        self.colors = colors
+        let id = tripID
+        _storedPoints = Query(
+            filter: #Predicate<RoutePoint> { $0.trip?.id == id },
+            sort: [SortDescriptor(\.timestamp)]
+        )
+    }
+
+    var body: some View {
+        Section {
+            mapPreview
+                .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+                .listRowBackground(Color.clear)
+        }
+        .task(id: storedPoints.count) {
+            moments = RideMomentsCalculator.calculate(trip: trip, points: storedPoints)
+        }
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Button {
+                        RideShareHelper.shareCardImage(trip: trip, moments: moments, points: storedPoints)
+                    } label: {
+                        Label("Share Card", systemImage: "square.and.arrow.up")
+                    }
+                    Button {
+                        RideShareHelper.shareGPX(trip: trip, points: storedPoints)
+                    } label: {
+                        Label("Export GPX", systemImage: "point.topleft.down.to.point.bottomright.curvepath")
+                    }
+                } label: {
+                    Image(systemName: "square.and.arrow.up")
+                }
+                .accessibilityLabel("Share ride")
+            }
+        }
+
+        if !moments.moments.isEmpty {
+            Section {
+                ForEach(moments.moments) { moment in
+                    MomentRow(moment: moment, colors: colors)
+                }
+            } header: {
+                Text("Moments")
+            }
+        }
+    }
+
+    private var mapPreview: some View {
+        let coords = Self.previewCoordinates(
+            RideRouteDisplay.resolve(trip: trip, storedPoints: storedPoints).coordinates
+        )
+
+        return ZStack(alignment: .bottomLeading) {
             if coords.count >= 2 {
                 Map(position: $mapPosition) {
                     MapPolyline(coordinates: coords)
@@ -324,8 +370,14 @@ struct RideSummaryView: View {
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
-    private func routeCoordinates(for trip: Trip) -> [CLLocationCoordinate2D] {
-        RideRouteDisplay.resolve(trip: trip, storedPoints: storedPoints).coordinates
+    /// The preview only needs the shape of the ride, not every GPS fix.
+    private static func previewCoordinates(_ coordinates: [CLLocationCoordinate2D]) -> [CLLocationCoordinate2D] {
+        let limit = 240
+        guard coordinates.count > limit else { return coordinates }
+        let step = Double(coordinates.count - 1) / Double(limit - 1)
+        return (0..<limit).map { index in
+            coordinates[min(coordinates.count - 1, Int((Double(index) * step).rounded()))]
+        }
     }
 
     private static func region(fitting coordinates: [CLLocationCoordinate2D]) -> MKCoordinateRegion? {
@@ -334,11 +386,11 @@ struct RideSummaryView: View {
         var maxLat = coordinates[0].latitude
         var minLng = coordinates[0].longitude
         var maxLng = coordinates[0].longitude
-        for c in coordinates {
-            minLat = min(minLat, c.latitude)
-            maxLat = max(maxLat, c.latitude)
-            minLng = min(minLng, c.longitude)
-            maxLng = max(maxLng, c.longitude)
+        for coordinate in coordinates {
+            minLat = min(minLat, coordinate.latitude)
+            maxLat = max(maxLat, coordinate.latitude)
+            minLng = min(minLng, coordinate.longitude)
+            maxLng = max(maxLng, coordinate.longitude)
         }
         return MKCoordinateRegion(
             center: CLLocationCoordinate2D(
