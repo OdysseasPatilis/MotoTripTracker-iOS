@@ -16,6 +16,7 @@ struct LiveRideMapView: View {
     @Environment(AppContainer.self) private var app
     @Environment(ThemeStore.self) private var theme
     @Environment(\.dashboardIsVisible) private var dashboardIsVisible
+    @Environment(\.mapBottomChromeHeight) private var mapBottomChromeHeight
 
     @State private var cameraPosition: MapCameraPosition = .userLocation(fallback: .automatic)
     @State private var isFollowingUser = true
@@ -152,7 +153,7 @@ struct LiveRideMapView: View {
                     onGo: { startNavigation(to: selectedPlace) }
                 )
                     .padding(.horizontal, 10)
-                    .padding(.bottom, 120)
+                    .padding(.bottom, mapBottomChromeHeight + 24)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
@@ -570,6 +571,18 @@ private struct PreviewPolylineItem: Identifiable {
     let id: String
     let coordinates: [CLLocationCoordinate2D]
     let isSelected: Bool
+}
+
+private struct MapBottomChromeHeightKey: EnvironmentKey {
+    static let defaultValue: CGFloat = 0
+}
+
+extension EnvironmentValues {
+    /// Height of the controls sitting on the lower map. The place card pads by this so it stays above them.
+    var mapBottomChromeHeight: CGFloat {
+        get { self[MapBottomChromeHeightKey.self] }
+        set { self[MapBottomChromeHeightKey.self] = newValue }
+    }
 }
 
 struct MapPlaceCardVisibleKey: PreferenceKey {

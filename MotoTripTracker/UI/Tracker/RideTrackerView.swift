@@ -17,6 +17,8 @@ struct RideTrackerView: View {
     @State private var showRouteWeather = false
     @State private var timingBanner: String?
     @State private var mapPlaceCardVisible = false
+    /// Height of the destination bar and ride controls, so a place card can sit above them.
+    @State private var bottomChromeHeight: CGFloat = 0
 
     private var speedLimitKmh: Int { app.speedLimitService.effectiveLimitKmh }
 
@@ -62,6 +64,7 @@ struct RideTrackerView: View {
 
         GeometryReader { _ in
             LiveRideMapView()
+                .environment(\.mapBottomChromeHeight, bottomChromeHeight)
                 .ignoresSafeArea(edges: navigating ? [] : .bottom)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .overlay(alignment: .top) {
@@ -118,20 +121,34 @@ struct RideTrackerView: View {
                                 .scrollIndicators(.hidden)
                                 .clipped()
                             }
-                            RideMapBottomOverlay(
-                                session: session,
-                                colors: colors,
-                                showDestinationSearch: $showDestinationSearch,
-                                showPetrolPicker: $showPetrolPicker,
-                                timingBanner: $timingBanner
-                            )
-                            RideControlsBar(
-                                session: session,
-                                colors: colors,
-                                discardBanner: $discardBanner
-                            )
+                            VStack(spacing: 4) {
+                                RideMapBottomOverlay(
+                                    session: session,
+                                    colors: colors,
+                                    showDestinationSearch: $showDestinationSearch,
+                                    showPetrolPicker: $showPetrolPicker,
+                                    timingBanner: $timingBanner
+                                )
+                                RideControlsBar(
+                                    session: session,
+                                    colors: colors,
+                                    discardBanner: $discardBanner
+                                )
+                            }
+                            .safeAreaPadding(.bottom, 4)
+                            .onGeometryChange(for: CGFloat.self) { proxy in
+                                proxy.size.height
+                            } action: { height in
+                                if bottomChromeHeight != height {
+                                    bottomChromeHeight = height
+                                }
+                            }
                         }
-                        .safeAreaPadding(.bottom, 4)
+                    }
+                }
+                .onChange(of: navigating) { _, isNavigating in
+                    if isNavigating {
+                        bottomChromeHeight = 0
                     }
                 }
                 .clipped()
