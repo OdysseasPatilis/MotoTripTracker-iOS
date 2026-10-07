@@ -125,6 +125,10 @@ struct RideSummaryView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
         .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text("Summary")
+                    .font(.headline)
+            }
             if let trip {
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button {
@@ -135,6 +139,27 @@ struct RideSummaryView: View {
                         Image(systemName: trip.isFavorite ? "star.fill" : "star")
                     }
                     .accessibilityLabel(trip.isFavorite ? "Remove favorite" : "Add favorite")
+
+                    Menu {
+                        Button {
+                            let points = app.repository.routePoints(for: tripID)
+                            let moments = RideMomentsCalculator.calculate(trip: trip, points: points)
+                            RideShareHelper.shareCardImage(trip: trip, moments: moments, points: points)
+                        } label: {
+                            Label("Share Card", systemImage: "square.and.arrow.up")
+                        }
+                        Button {
+                            RideShareHelper.shareGPX(
+                                trip: trip,
+                                points: app.repository.routePoints(for: tripID)
+                            )
+                        } label: {
+                            Label("Export GPX", systemImage: "point.topleft.down.to.point.bottomright.curvepath")
+                        }
+                    } label: {
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                    .accessibilityLabel("Share ride")
 
                     Menu {
                         Button {
@@ -277,25 +302,6 @@ private struct RideSummaryRouteContent: View {
         }
         .task(id: storedPoints.count) {
             moments = RideMomentsCalculator.calculate(trip: trip, points: storedPoints)
-        }
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button {
-                        RideShareHelper.shareCardImage(trip: trip, moments: moments, points: storedPoints)
-                    } label: {
-                        Label("Share Card", systemImage: "square.and.arrow.up")
-                    }
-                    Button {
-                        RideShareHelper.shareGPX(trip: trip, points: storedPoints)
-                    } label: {
-                        Label("Export GPX", systemImage: "point.topleft.down.to.point.bottomright.curvepath")
-                    }
-                } label: {
-                    Image(systemName: "square.and.arrow.up")
-                }
-                .accessibilityLabel("Share ride")
-            }
         }
 
         if !moments.moments.isEmpty {
