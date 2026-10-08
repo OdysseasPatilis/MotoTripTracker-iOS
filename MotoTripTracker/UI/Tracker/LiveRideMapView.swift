@@ -26,6 +26,8 @@ struct LiveRideMapView: View {
     @State private var followPause = MapFollowPause()
     /// Ride start resizes the map. Ignore those camera callbacks so follow stays on the dot.
     @State private var suppressFollowReleaseUntil = Date.distantPast
+    /// Last point the app aimed the camera at. A settle near this point is not a pan.
+    @State private var followTargetCoordinate: CLLocationCoordinate2D?
     @State private var mapSelection: MapSelection<MKMapItem>?
     @State private var selectedPlace: PickedMapPlace?
     @State private var isResolvingPlace = false
@@ -191,10 +193,17 @@ struct LiveRideMapView: View {
         }
         .onMapCameraChange(frequency: .onEnd) { context in
             let wasProgrammatic = cameraGate.consumeIfProgrammatic()
+            let stillOnTarget = FollowCameraRelease.settledOnTarget(
+                camera: context.camera.centerCoordinate,
+                target: followTargetCoordinate
+            )
 
             var following = isFollowingUser && !followPause.isPaused
             let suppressRelease = Date() < suppressFollowReleaseUntil
+            // GPS updates and the follow animation both end the camera near the
+            // rider. Only a move away from that point is the user exploring.
             if !wasProgrammatic,
+               !stillOnTarget,
                !suppressRelease,
                app.navigationService.phase != .previewing,
                following {
@@ -461,6 +470,7 @@ struct LiveRideMapView: View {
     private func recenterOnUser() {
         followPause.isPaused = false
         isFollowingUser = true
+        followTargetCoordinate = nil
         clearSelectedPlace()
         updateCamera(location: app.locationService.lastLocation)
     }
@@ -503,6 +513,13 @@ struct LiveRideMapView: View {
                 pitch: 55
             )
         } else {
+            // Idle and a recorded ride share one framing: the camera center is the rider.
+            // Ignore indoor GPS wobble so the map does not creep and then look like a pan.
+            if let followTargetCoordinate,
+               FollowCameraRelease.meters(from: followTargetCoordinate, to: location.coordinate)
+                < FollowCameraRelease.stationaryDeadbandMeters {
+                return
+            }
             camera = MapCamera(
                 centerCoordinate: location.coordinate,
                 distance: 1400,
@@ -511,6 +528,7 @@ struct LiveRideMapView: View {
             )
         }
 
+        followTargetCoordinate = camera.centerCoordinate
         cameraGate.markProgrammatic()
         withAnimation(.easeInOut(duration: 0.45)) {
             cameraPosition = .camera(camera)
@@ -567,6 +585,30 @@ struct MapPlaceCardVisibleKey: PreferenceKey {
     static var defaultValue = false
     static func reduce(value: inout Bool, nextValue: () -> Bool) {
         value = value || nextValue()
+    }
+}
+
+/// Decides when a camera settle is still the app's follow, not the user leaving it.
+enum FollowCameraRelease {
+    /// A settle this close to the commanded center is the follow animation or GPS noise.
+    static let releaseDistanceMeters: CLLocationDistance = 80
+    /// Top-down follow holds still through smaller GPS wobble at a standstill.
+    static let stationaryDeadbandMeters: CLLocationDistance = 15
+
+    static func meters(
+        from: CLLocationCoordinate2D,
+        to: CLLocationCoordinate2D
+    ) -> CLLocationDistance {
+        CLLocation(latitude: from.latitude, longitude: from.longitude)
+            .distance(from: CLLocation(latitude: to.latitude, longitude: to.longitude))
+    }
+
+    static func settledOnTarget(
+        camera: CLLocationCoordinate2D,
+        target: CLLocationCoordinate2D?
+    ) -> Bool {
+        guard let target else { return false }
+        return meters(from: camera, to: target) < releaseDistanceMeters
     }
 }
 
@@ -652,7 +694,7 @@ private struct MapInteractionSpy: UIViewRepresentable {
         }
 
         override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-            if isEnabled, event != nil {
+            if isEnabled, let event, event.type == .touches, event.allTouches?.isEmpty == false {
                 onUserInteraction()
             }
             return nil

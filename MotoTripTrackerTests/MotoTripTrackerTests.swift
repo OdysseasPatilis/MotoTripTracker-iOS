@@ -19,6 +19,17 @@ struct MotoTripTrackerTests {
         #expect(!userPan)
     }
 
+    @Test func followCameraSettleNearTheRiderIsNotAPan() {
+        let house = CLLocationCoordinate2D(latitude: 37.98, longitude: 23.72)
+        let wobble = CLLocationCoordinate2D(latitude: 37.98004, longitude: 23.72004)
+        let panned = CLLocationCoordinate2D(latitude: 37.985, longitude: 23.72)
+        #expect(FollowCameraRelease.settledOnTarget(camera: house, target: house))
+        #expect(FollowCameraRelease.settledOnTarget(camera: wobble, target: house))
+        #expect(!FollowCameraRelease.settledOnTarget(camera: panned, target: house))
+        #expect(!FollowCameraRelease.settledOnTarget(camera: house, target: nil))
+        #expect(FollowCameraRelease.meters(from: house, to: wobble) < FollowCameraRelease.stationaryDeadbandMeters)
+    }
+
     @Test func riderPointingUsesCourseWhenMovingAndCompassWhenStill() {
         let moving = RiderPointing.degrees(course: 90, speedMps: 8, compassDegrees: 10)
         let standing = RiderPointing.degrees(course: -1, speedMps: 0, compassDegrees: 40)
