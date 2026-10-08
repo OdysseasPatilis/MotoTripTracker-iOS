@@ -10,7 +10,7 @@ The app is the iOS counterpart of the Android **MotoTripTracker** project, with 
 
 ### Live ride tracking
 - **Full-screen map** on the main screen and while guiding. The large speedometer floats on the lower map; scroll that area to see ride stats (distance, time, G, twistiness). While turn-by-turn guidance is active, that dial steps aside for the glance HUD
-- **Live map** with follow-camera, 3D pitch, and look-ahead framing while riding (more road ahead; tightens near turns when navigating); gentle top-down view when idle
+- **Live map** with follow-camera. While a ride is recording the view stays top-down and centered on the rider. Guidance adds 3D pitch and look-ahead that tightens near turns. Idle is a gentler top-down view, shifted so the puck sits above the speedometer
 - **Traveled trail** drawn on the map as a mint polyline during the session
 - **Start / pause / resume / stop** with **keep-screen-on while a ride is active** (including paused) so auto-lock does not dim the dashboard mid-ride
 - **Location permissions — read this before riding**
@@ -45,7 +45,7 @@ The app is the iOS counterpart of the Android **MotoTripTracker** project, with 
 - **Auto-arrives** within ~45 m of the destination (with a short dwell) and ends guidance, speaks “You have arrived”, then shows the timing banner
 - **Glance HUD** while guiding: a full-width turn banner (arrow, large distance, street name underneath), a tick-mark speed dial with the limit sign on the lower map, and a bottom bar for ride distance, average speed, and **Left** (remaining motorcycle time). “Cars +N min” sits above the dial when car traffic is meaningfully slower. A back chevron returns to the route preview. Voice, weather, Apple Maps, and End Navigation are in the options menu
 - **Spoken turns** (`AVSpeechSynthesizer`): announces approach (~250 m) and on step advance; mute from the navigation menu; uses an English voice (MapKit instructions are English). Light haptic still fires on advance
-- **Riding camera:** While recording with follow on, the map centers ahead of you (more road ahead) and zooms in for upcoming turns using a speed-scaled window. During guidance that look-ahead is shortened so the arrow stays above the speed dial
+- **Riding camera:** While recording with follow on, and not guiding, the map stays top-down and centered on the rider. During guidance the camera looks ahead (more road ahead) and zooms in for upcoming turns; that look-ahead is shortened so the arrow stays above the speed dial
 - **Off-route recalculation** after you have traveled about 50 m off the planned line (stricter when your heading disagrees). A single GPS spike does not reroute. See `docs/Navigation.md`
 - **Distance remaining** and **ETA** update as you move
 - **Map places:** Tap a shop or landmark on the dashboard map to open a Go card; **Go** starts the same route preview as destination search
