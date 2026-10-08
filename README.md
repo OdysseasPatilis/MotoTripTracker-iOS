@@ -10,7 +10,7 @@ The app is the iOS counterpart of the Android **MotoTripTracker** project, with 
 
 ### Live ride tracking
 - **Full-screen map** on the main screen and while guiding. The large speedometer floats on the lower map; scroll that area to see ride stats (distance, time, G, twistiness). While turn-by-turn guidance is active, that dial steps aside for the glance HUD
-- **Live map** with follow-camera. While a ride is recording the view stays top-down and centered on the rider. Guidance adds 3D pitch and look-ahead that tightens near turns. Idle is a gentler top-down view, shifted so the puck sits above the speedometer
+- **Live map** with follow-camera. Idle and a recorded ride stay top-down and centered on your location. Guidance adds 3D pitch and look-ahead that tightens near turns. Standing still does not count as a pan, so Recenter stays hidden until you move the map
 - **Traveled trail** drawn on the map as a mint polyline during the session
 - **Start / pause / resume / stop** with **keep-screen-on while a ride is active** (including paused) so auto-lock does not dim the dashboard mid-ride
 - **Location permissions — read this before riding**
