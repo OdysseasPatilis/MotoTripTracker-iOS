@@ -140,7 +140,18 @@ struct RideSummaryView: View {
                     }
                     .accessibilityLabel(trip.isFavorite ? "Remove favorite" : "Add favorite")
 
+                    NavigationLink(value: AppRoute.fullRoute(trip.id)) {
+                        Image(systemName: "play.circle")
+                    }
+                    .accessibilityLabel("Replay Route")
+
                     Menu {
+                        Button {
+                            renameText = trip.title ?? ""
+                            showRename = true
+                        } label: {
+                            Label("Rename", systemImage: "pencil")
+                        }
                         Button {
                             let points = app.repository.routePoints(for: tripID)
                             let moments = RideMomentsCalculator.calculate(trip: trip, points: points)
@@ -155,21 +166,6 @@ struct RideSummaryView: View {
                             )
                         } label: {
                             Label("Export GPX", systemImage: "point.topleft.down.to.point.bottomright.curvepath")
-                        }
-                    } label: {
-                        Image(systemName: "square.and.arrow.up")
-                    }
-                    .accessibilityLabel("Share ride")
-
-                    Menu {
-                        Button {
-                            renameText = trip.title ?? ""
-                            showRename = true
-                        } label: {
-                            Label("Rename", systemImage: "pencil")
-                        }
-                        NavigationLink(value: AppRoute.fullRoute(trip.id)) {
-                            Label("Replay Route", systemImage: "play.circle")
                         }
                         Divider()
                         Button("Delete Ride", role: .destructive) {
