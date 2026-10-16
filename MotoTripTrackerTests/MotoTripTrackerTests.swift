@@ -487,6 +487,17 @@ struct MotoTripTrackerTests {
         #expect(ranked.map(\.rank) == [1, 2, 3])
     }
 
+    @Test func leaderboardKeepsOnlyTheTopTen() {
+        let trips = (1...12).map { index in
+            Trip(startTime: TimeInterval(index), maxSpeed: Double(index * 10))
+        }
+        let ranked = LeaderboardRanking.entries(from: trips, category: .speed)
+        #expect(ranked.count == 10)
+        #expect(ranked.first?.trip.maxSpeed == 120)
+        #expect(ranked.last?.trip.maxSpeed == 30)
+        #expect(ranked.map(\.rank) == Array(1...10))
+    }
+
     @Test func openingHoursDetectsOpenAndClosed() {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!

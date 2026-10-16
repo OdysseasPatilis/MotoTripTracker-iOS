@@ -80,7 +80,7 @@ enum LeaderboardRanking {
                 return lv > rv
             }
 
-        return sorted.enumerated().map { index, trip in
+        return sorted.prefix(10).enumerated().map { index, trip in
             LeaderboardEntry(rank: index + 1, trip: trip)
         }
     }
