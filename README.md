@@ -93,7 +93,7 @@ The app is the iOS counterpart of the Android **MotoTripTracker** project, with 
 - Empty states via `ContentUnavailableView`
 
 ### Personal leaderboard
-- Rank your own rides by **Speed** (max km/h), **Distance** (km), **Turns** (corner count), or **Twistiness** (composite score)
+- Rank your own rides by **Speed** (max km/h), **Distance** (km), **Turns** (corner count), or **Twistiness** (composite score). Each category shows the **top 10**
 - Segmented categories; tap a row to open the same ride **summary** as History
 - Gold / silver / bronze badges for the top three ranks
 
