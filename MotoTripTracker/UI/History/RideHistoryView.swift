@@ -68,27 +68,8 @@ struct RideHistoryView: View {
                 .listRowInsets(EdgeInsets(top: 2, leading: 16, bottom: 2, trailing: 16))
             }
 
-            Section {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        ForEach(DateFilterPreset.allCases) { preset in
-                            let isSelected = datePreset == preset
-                            Button {
-                                selectDatePreset(preset)
-                            } label: {
-                                Text(preset.rawValue)
-                            }
-                            .controlSize(.small)
-                            .buttonStyle(.bordered)
-                            .tint(isSelected ? colors.neonGreen : .secondary)
-                            .fontWeight(isSelected ? .semibold : .regular)
-                        }
-                    }
-                }
-                .listRowInsets(EdgeInsets(top: 2, leading: 16, bottom: 2, trailing: 16))
-                .listRowBackground(Color.clear)
-
-                if datePreset == .custom {
+            if datePreset == .custom {
+                Section {
                     HStack(spacing: 10) {
                         Button {
                             activeCustomField = .from
@@ -149,6 +130,28 @@ struct RideHistoryView: View {
         .navigationTitle("History")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Picker("When", selection: $datePreset) {
+                        ForEach(DateFilterPreset.allCases) { preset in
+                            Text(preset.rawValue).tag(preset)
+                        }
+                    }
+                } label: {
+                    Image(systemName: "calendar")
+                }
+                .accessibilityLabel("Filter by date, \(datePreset.rawValue)")
+                .tint(datePreset == .any ? colors.textSecondary : colors.neonGreen)
+            }
+        }
+        .onChange(of: datePreset) { _, preset in
+            if preset == .custom {
+                let calendar = Calendar.current
+                customFrom = calendar.startOfDay(for: Date())
+                customTo = RideHistoryQuery.endOfDay(Date())
+            }
+        }
         .searchable(text: $searchQuery, prompt: "Search rides")
         .sheet(item: $activeCustomField) { field in
             CustomDatePickerSheet(
@@ -188,15 +191,6 @@ struct RideHistoryView: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .background(colors.bgCard, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-    }
-
-    private func selectDatePreset(_ preset: DateFilterPreset) {
-        datePreset = preset
-        if preset == .custom {
-            let calendar = Calendar.current
-            customFrom = calendar.startOfDay(for: Date())
-            customTo = RideHistoryQuery.endOfDay(Date())
-        }
     }
 
     private func normalizeCustomRange() {
