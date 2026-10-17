@@ -257,41 +257,40 @@ struct RideHistoryRow: View {
     let colors: AppPalette
 
     var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "bicycle")
-                .font(.body.weight(.semibold))
-                .foregroundStyle(colors.neonGreen)
-                .frame(width: 32, height: 32)
-                .background(colors.neonGreen.opacity(0.12), in: Circle())
+        HStack(alignment: .center, spacing: 12) {
+            RideRouteSparkline(encodedPolyline: ride.encodedRoutePolyline, colors: colors)
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(ride.displayTitle)
-                        .font(.body.weight(.semibold))
+                        .font(.subheadline.weight(.semibold))
                         .foregroundStyle(colors.textPrimary)
                         .lineLimit(1)
+                    Spacer(minLength: 0)
                     if ride.isFavorite {
                         Image(systemName: "star.fill")
-                            .font(.caption2)
+                            .font(.caption)
                             .foregroundStyle(colors.routeAmber)
+                            .accessibilityLabel("Favorite")
                     }
                 }
-                Text(RideFormatters.timestampToTime(ride.startTime))
-                    .font(.caption)
-                    .foregroundStyle(colors.textSecondary)
-                Text(
-                    String(
-                        format: "%@ · %.1f km · %d km/h avg",
-                        RideFormatters.secondsToTime(ride.totalTime),
-                        ride.distanceKm,
-                        Int(ride.avgSpeed)
-                    )
-                )
-                .font(.caption)
-                .foregroundStyle(colors.textMuted)
+
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(String(format: "%.1f km", ride.distanceKm))
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(colors.textPrimary)
+                    Text(secondaryLine)
+                        .font(.caption)
+                        .foregroundStyle(colors.textMuted)
+                        .lineLimit(1)
+                }
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 6)
+    }
+
+    private var secondaryLine: String {
+        "\(RideFormatters.timestampToTime(ride.startTime)) · \(RideFormatters.secondsToTime(ride.totalTime)) · \(Int(ride.avgSpeed)) km/h"
     }
 }
 
