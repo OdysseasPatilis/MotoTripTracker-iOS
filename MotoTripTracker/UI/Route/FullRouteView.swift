@@ -49,6 +49,12 @@ struct FullRouteView: View {
     private var replayEngine: RouteReplayEngine { RouteReplayEngine(points: points) }
     private var replayFrame: RouteReplayFrame? { replayEngine.frame(at: replayElapsed) }
 
+    /// Where the profile dot sits. Hidden until replay or a scrub moves off the start.
+    private var profilePlayhead: Double? {
+        guard replayEngine.duration > 0, isReplaying || replayElapsed > 0 else { return nil }
+        return min(1, max(0, replayElapsed / replayEngine.duration))
+    }
+
     var body: some View {
         let colors = theme.palette
 
@@ -127,6 +133,7 @@ struct FullRouteView: View {
                         points: points,
                         selectedLayer: selectedLayer,
                         tripDistanceKm: tripDistanceKm,
+                        playheadFraction: profilePlayhead,
                         colors: colors
                     )
                     .listRowBackground(Color.clear)
