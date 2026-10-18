@@ -31,6 +31,8 @@ struct FullRouteView: View {
     @State private var replayStartElapsed: TimeInterval = 0
     @State private var selectedWaypointID: UUID?
     @State private var usingPolylineFallback = false
+    @State private var showDetails = false
+    @State private var detailDetent: PresentationDetent = .height(88)
 
     init(tripID: UUID) {
         self.tripID = tripID
@@ -50,83 +52,44 @@ struct FullRouteView: View {
     var body: some View {
         let colors = theme.palette
 
-        ScrollViewReader { proxy in
-            List {
-                if replayEngine.isValid {
-                    Section("Replay") {
-                        replayControls(colors: colors)
-                            .listRowBackground(colors.bgCard)
-                    }
-                }
+        ZStack(alignment: .bottom) {
+            routeMap(colors: colors)
+                .ignoresSafeArea(edges: .bottom)
 
-                Section {
-                    Picker("Layer", selection: $selectedLayer) {
-                        ForEach(MapLayer.allCases) { layer in
-                            Text(layer.rawValue).tag(layer)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
-                }
-
-                Section {
-                    routeMap(colors: colors)
-                        .frame(height: 300)
-                        .listRowInsets(EdgeInsets())
-                        .listRowBackground(Color.clear)
-                        .id(selectedLayer)
-                }
-                .id("route-map")
-
-                Section {
-                    FullRouteProfileChart(
-                        points: points,
-                        selectedLayer: selectedLayer,
-                        tripDistanceKm: tripDistanceKm,
-                        colors: colors
-                    )
-                    .listRowBackground(Color.clear)
-                    FullRouteLegendCaption(selectedLayer: selectedLayer, colors: colors)
-                        .listRowBackground(Color.clear)
-                }
-
-                if !waypoints.isEmpty {
-                    Section("Waypoints") {
-                        ForEach(waypoints, id: \.id) { waypoint in
-                            waypointRow(waypoint, colors: colors)
-                                .id(waypoint.id)
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    selectWaypoint(waypoint)
-                                    withAnimation(.easeInOut(duration: 0.3)) {
-                                        proxy.scrollTo("route-map", anchor: .center)
-                                    }
-                                }
-                                .listRowBackground(
-                                    selectedWaypointID == waypoint.id
-                                        ? colors.neonBlue.opacity(0.14)
-                                        : colors.bgCard
-                                )
-                        }
-                    }
+            if replayEngine.isValid {
+                replayControls(colors: colors)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 104)
+            }
+        }
+        .background(colors.bgDeep.ignoresSafeArea())
+        .overlay(alignment: .top) {
+            Picker("Layer", selection: $selectedLayer) {
+                ForEach(MapLayer.allCases) { layer in
+                    Text(layer.rawValue).tag(layer)
                 }
             }
-            .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .background(colors.bgDeep.ignoresSafeArea())
-            .onChange(of: selectedWaypointID) { _, newID in
-                guard let newID else { return }
-                withAnimation(.easeInOut(duration: 0.25)) {
-                    proxy.scrollTo(newID, anchor: .center)
-                }
-            }
+            .pickerStyle(.segmented)
+            .frame(maxWidth: 240)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .glassEffect(.regular, in: .capsule)
+            .padding(.top, 8)
         }
         .navigationTitle("Route")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
+        .sheet(isPresented: $showDetails) {
+            routeDetails(colors: colors)
+                .presentationDetents([.height(88), .medium, .large], selection: $detailDetent)
+                .presentationDragIndicator(.visible)
+                .presentationBackgroundInteraction(.enabled(upThrough: .medium))
+                .interactiveDismissDisabled()
+                .presentationBackground(colors.bgDeep)
+        }
         .onAppear {
             applyRouteDisplay()
+            showDetails = true
             Task {
                 await app.repository.ensureWaypointsAnalyzed(tripID: tripID)
                 applyRouteDisplay()
@@ -152,6 +115,52 @@ struct FullRouteView: View {
             replayElapsed = min(replayEngine.duration, replayStartElapsed + delta)
             if replayElapsed >= replayEngine.duration {
                 isReplaying = false
+            }
+        }
+    }
+
+    private func routeDetails(colors: AppPalette) -> some View {
+        ScrollViewReader { proxy in
+            List {
+                Section {
+                    FullRouteProfileChart(
+                        points: points,
+                        selectedLayer: selectedLayer,
+                        tripDistanceKm: tripDistanceKm,
+                        colors: colors
+                    )
+                    .listRowBackground(Color.clear)
+                    FullRouteLegendCaption(selectedLayer: selectedLayer, colors: colors)
+                        .listRowBackground(Color.clear)
+                }
+
+                if !waypoints.isEmpty {
+                    Section("Waypoints") {
+                        ForEach(waypoints, id: \.id) { waypoint in
+                            waypointRow(waypoint, colors: colors)
+                                .id(waypoint.id)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    selectWaypoint(waypoint)
+                                    detailDetent = .height(88)
+                                }
+                                .listRowBackground(
+                                    selectedWaypointID == waypoint.id
+                                        ? colors.neonBlue.opacity(0.14)
+                                        : colors.bgCard
+                                )
+                        }
+                    }
+                }
+            }
+            .listStyle(.insetGrouped)
+            .scrollContentBackground(.hidden)
+            .background(colors.bgDeep.ignoresSafeArea())
+            .onChange(of: selectedWaypointID) { _, newID in
+                guard let newID else { return }
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    proxy.scrollTo(newID, anchor: .center)
+                }
             }
         }
     }
@@ -184,6 +193,9 @@ struct FullRouteView: View {
     private func selectWaypoint(_ waypoint: RoutePoint) {
         isReplaying = false
         selectedWaypointID = waypoint.id
+        if detailDetent == .height(88) {
+            detailDetent = .medium
+        }
         let coordinate = CLLocationCoordinate2D(latitude: waypoint.latitude, longitude: waypoint.longitude)
         withAnimation(.easeInOut(duration: 0.35)) {
             cameraPosition = .region(
@@ -216,36 +228,32 @@ struct FullRouteView: View {
 
     @ViewBuilder
     private func replayControls(colors: AppPalette) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 12) {
                 Button {
-                    if isReplaying {
-                        isReplaying = false
-                    } else {
-                        replayStartElapsed = replayElapsed
-                        replayAnchor = Date()
-                        if replayElapsed >= replayEngine.duration {
-                            replayElapsed = 0
-                            replayStartElapsed = 0
-                        }
-                        isReplaying = true
-                    }
+                    toggleReplay()
                 } label: {
                     Image(systemName: isReplaying ? "pause.fill" : "play.fill")
                         .font(.headline)
-                        .frame(width: 40, height: 40)
+                        .foregroundStyle(Color(hex: 0x06281F))
+                        .frame(width: 44, height: 44)
+                        .background(colors.neonGreen, in: Circle())
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(colors.neonGreen)
+                .buttonStyle(.plain)
+                .accessibilityLabel(isReplaying ? "Pause replay" : "Play replay")
 
                 Button {
                     replayElapsed = 0
                     isReplaying = false
                 } label: {
                     Image(systemName: "backward.end.fill")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(colors.textPrimary)
+                        .frame(width: 44, height: 44)
                 }
-                .buttonStyle(.bordered)
-                .tint(colors.neonBlue)
+                .buttonStyle(.plain)
+                .glassEffect(.regular.interactive(), in: .circle)
+                .accessibilityLabel("Restart replay")
 
                 ReplayRatePicker(rate: $playbackRate)
                     .equatable()
@@ -273,7 +281,23 @@ struct FullRouteView: View {
                 .tint(colors.neonGreen)
             }
         }
-        .padding(.vertical, 4)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .glassEffect(.regular, in: .rect(cornerRadius: 22))
+    }
+
+    private func toggleReplay() {
+        if isReplaying {
+            isReplaying = false
+        } else {
+            replayStartElapsed = replayElapsed
+            replayAnchor = Date()
+            if replayElapsed >= replayEngine.duration {
+                replayElapsed = 0
+                replayStartElapsed = 0
+            }
+            isReplaying = true
+        }
     }
 
     /// Reserves the widest speed and clock strings so digit changes cannot
@@ -385,7 +409,6 @@ struct FullRouteView: View {
             }
         }
         .mapStyle(.standard(elevation: .realistic))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(alignment: .topLeading) {
             if usingPolylineFallback {
                 Text("Route from saved path · limited replay detail")

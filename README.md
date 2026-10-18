@@ -109,7 +109,7 @@ The app is the iOS counterpart of the Android **MotoTripTracker** project, with 
 - Elevation or speed profile chart
 - Waypoints (start/end, top speed, summit, stops, etc.) with reverse-geocoded labels where available; Full Route **re-runs analysis** if markers were missing after a background finalize
 - If stored route points fail to load, Full Route **falls back to the trip’s encoded polyline** so the map is not blank (replay detail may be limited)
-- **Route replay**: play / pause / scrub timeline at 1×–4× speed; map follows the rider with traveled vs remaining route highlighted; live speed readout during playback
+- **Route replay**: the route fills the screen. Play, pause, the scrubber, 1×–4×, and the live speed sit on a glass bar. The profile chart and waypoints pull up in a sheet. The map follows the rider, with the traveled route highlighted against what is left
 
 ### UI & theming
 - Ride dashboard uses a **HUD-style** layout (hidden nav bar, map overlays) rather than a classic toolbar screen
