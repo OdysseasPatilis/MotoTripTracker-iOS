@@ -6,9 +6,9 @@ import os
 
 /// Live, videogame-style map for the ride dashboard.
 ///
-/// While following the rider, the camera tracks GPS. Idle is top-down with the
-/// pin in the open map above the speedometer. A recorded ride stays top-down
-/// on the rider. Guidance uses 3D pitch, look-ahead, and turn zoom.
+/// While following the rider, the camera tracks GPS. Idle and a recorded ride
+/// stay top-down with the pin in the open map above the speedometer. Guidance
+/// uses 3D pitch, look-ahead, and turn zoom.
 /// Panning or zooming pauses follow; a Recenter
 /// button restores it. Tapping a map point of interest shows a Go card that
 /// starts the existing route-preview flow. Draws the traveled trail, planned
@@ -514,15 +514,15 @@ struct LiveRideMapView: View {
                 pitch: 55
             )
         } else {
-            let recording = app.tripManager.sessionState.isActive
-            // Idle shifts the camera south so the pin sits in the open map above the dial.
-            // A recorded ride stays on the rider.
-            let center = recording
-                ? location.coordinate
-                : RideFollowCameraPolicy.idleCenterAboveBottomDial(
+            // The speedometer covers the lower map while a ride is recording and while idle.
+            // Shift the camera south so the location pin stays in the open map above it.
+            let mainDialVisible = navigation.phase == .idle && selectedPlace == nil
+            let center = mainDialVisible
+                ? RideFollowCameraPolicy.idleCenterAboveBottomDial(
                     rider: location.coordinate,
                     cameraDistanceMeters: 1400
                 )
+                : location.coordinate
             // Ignore indoor GPS wobble so the map does not creep and then look like a pan.
             if let followTargetCoordinate,
                FollowCameraRelease.meters(from: followTargetCoordinate, to: center)
