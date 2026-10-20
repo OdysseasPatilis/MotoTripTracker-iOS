@@ -14,12 +14,35 @@ import os
 /// starts the existing route-preview flow. Draws the traveled trail, planned
 /// navigation route, traffic cameras, and a destination pin.
 struct LiveRideMapView: View {
+    /// Top-down follow distance for idle and for a recorded ride that is not guiding.
+    static let topDownDistanceMeters: CLLocationDistance = 1400
+
+    /// Camera used when the main speedometer is on screen. The center sits south of the rider.
+    static func topDownCamera(rider: CLLocationCoordinate2D) -> MapCamera {
+        let center = RideFollowCameraPolicy.idleCenterAboveBottomDial(
+            rider: rider,
+            cameraDistanceMeters: topDownDistanceMeters
+        )
+        return MapCamera(centerCoordinate: center, distance: topDownDistanceMeters, heading: 0, pitch: 0)
+    }
+
+    init(launchLocation: CLLocation? = nil) {
+        if let launchLocation {
+            let camera = Self.topDownCamera(rider: launchLocation.coordinate)
+            _cameraPosition = State(initialValue: .camera(camera))
+            _followTargetCoordinate = State(initialValue: camera.centerCoordinate)
+            _didPlaceFollowCamera = State(initialValue: true)
+        }
+    }
+
     @Environment(AppContainer.self) private var app
     @Environment(ThemeStore.self) private var theme
     @Environment(\.dashboardIsVisible) private var dashboardIsVisible
     @Environment(\.mapBottomChromeHeight) private var mapBottomChromeHeight
 
     @State private var cameraPosition: MapCameraPosition = .userLocation(fallback: .automatic)
+    /// False until the follow camera has been aimed once. The first aim is instant so launch does not fly in.
+    @State private var didPlaceFollowCamera = false
     @State private var isFollowingUser = true
     /// One callback consumes every camera move the app queued, so a later pan still counts as the user's.
     @State private var cameraGate = MapProgrammaticCameraGate()
@@ -517,21 +540,17 @@ struct LiveRideMapView: View {
             // The speedometer covers the lower map while a ride is recording and while idle.
             // Shift the camera south so the location pin stays in the open map above it.
             let mainDialVisible = navigation.phase == .idle && selectedPlace == nil
-            let center = mainDialVisible
-                ? RideFollowCameraPolicy.idleCenterAboveBottomDial(
-                    rider: location.coordinate,
-                    cameraDistanceMeters: 1400
-                )
-                : location.coordinate
+            let topDown = mainDialVisible ? Self.topDownCamera(rider: location.coordinate) : nil
+            let center = topDown?.centerCoordinate ?? location.coordinate
             // Ignore indoor GPS wobble so the map does not creep and then look like a pan.
             if let followTargetCoordinate,
                FollowCameraRelease.meters(from: followTargetCoordinate, to: center)
                 < FollowCameraRelease.stationaryDeadbandMeters {
                 return
             }
-            camera = MapCamera(
+            camera = topDown ?? MapCamera(
                 centerCoordinate: center,
-                distance: 1400,
+                distance: Self.topDownDistanceMeters,
                 heading: 0,
                 pitch: 0
             )
@@ -539,8 +558,14 @@ struct LiveRideMapView: View {
 
         followTargetCoordinate = camera.centerCoordinate
         cameraGate.markProgrammatic()
-        withAnimation(.easeInOut(duration: 0.45)) {
+        let apply = {
             cameraPosition = .camera(camera)
+        }
+        if didPlaceFollowCamera {
+            withAnimation(.easeInOut(duration: 0.45), apply)
+        } else {
+            didPlaceFollowCamera = true
+            apply()
         }
     }
 

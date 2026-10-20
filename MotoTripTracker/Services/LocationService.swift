@@ -45,6 +45,11 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
         manager.activityType = .automotiveNavigation
         manager.pausesLocationUpdatesAutomatically = false
         applyBackgroundConfiguration(restartIfNeeded: false)
+        // The system often already has a fix. Use it so the map can open on
+        // the rider instead of waiting for the next delegate callback.
+        if lastLocation == nil {
+            lastLocation = manager.location
+        }
     }
 
     /// Ask for When In Use only (first launch / dashboard). Never auto-prompts Always.

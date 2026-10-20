@@ -51,6 +51,10 @@ final class AppContainer {
         self.routeWeatherService = RouteWeatherService()
         self.theme = ThemeStore()
 
+        if !inMemory {
+            locationService.startUpdating()
+        }
+
         navigationService.onRouteApplied = { [weak self] coordinates, travelTime in
             self?.routeWeatherService.refreshForRoute(coordinates: coordinates, travelTime: travelTime)
         }

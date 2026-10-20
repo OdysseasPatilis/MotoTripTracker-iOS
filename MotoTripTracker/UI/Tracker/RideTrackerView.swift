@@ -63,7 +63,7 @@ struct RideTrackerView: View {
             : 0
 
         GeometryReader { _ in
-            LiveRideMapView()
+            LiveRideMapView(launchLocation: app.locationService.lastLocation)
                 .environment(\.mapBottomChromeHeight, bottomChromeHeight)
                 .ignoresSafeArea(edges: navigating ? [] : .bottom)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
