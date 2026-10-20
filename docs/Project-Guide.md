@@ -309,7 +309,7 @@ Root is always `RideTrackerView`. Other screens are pushed via `NavigationStack`
 
 HUD-style layout (the system navigation bar is hidden on the tracker; History, Leaderboard, Summary, and the full-route screen show it again so the back button stays available):
 
-- Idle and preview: `LiveRideMapView` fills the screen. On the idle map a large speedometer floats above destination search. Route preview hides that dial so the route card can use the lower map
+- Idle and preview: `LiveRideMapView` fills the screen. On the idle map a large speedometer floats above destination search. The camera opens already framed on the cached GPS fix, with the pin above that dial; the first aim does not animate in. Route preview hides that dial so the route card can use the lower map
 - While guiding: the same full-screen map. The large dial steps aside for the turn banner, tick-mark speed dial, and Dist / Avg / Left bar
 - Sheets: destination search, petrol, weather, fuel settings
 - Options menu when idle: History, Leaderboard, fuel, cloud sync, petrol, theme. While guiding, those items plus voice, weather, Apple Maps, and End Navigation live in the banner's menu

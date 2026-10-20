@@ -10,7 +10,7 @@ The app is the iOS counterpart of the Android **MotoTripTracker** project, with 
 
 ### Live ride tracking
 - **Full-screen map** on the main screen and while guiding. The large speedometer floats on the lower map; scroll that area to see ride stats (distance, time, G, twistiness). While turn-by-turn guidance is active, that dial steps aside for the glance HUD
-- **Live map** with follow-camera. Idle and a recorded ride stay top-down with the location pin in the open map above the speedometer. Guidance adds 3D pitch and look-ahead that tightens near turns. Standing still does not count as a pan, so Recenter stays hidden until you move the map
+- **Live map** with follow-camera. The map opens already framed on the last known location, with the pin in the open map above the speedometer. Idle and a recorded ride stay on that framing. Guidance adds 3D pitch and look-ahead that tightens near turns. Standing still does not count as a pan, so Recenter stays hidden until you move the map
 - **Traveled trail** drawn on the map as a mint polyline during the session
 - **Start / pause / resume / stop** with **keep-screen-on while a ride is active** (including paused) so auto-lock does not dim the dashboard mid-ride
 - **Location permissions — read this before riding**
@@ -26,7 +26,7 @@ The app is the iOS counterpart of the Android **MotoTripTracker** project, with 
 
 ### Launch & branding
 - **Animated splash** (`SplashView`): logo scale-in, speedometer needle, GPS bars, and road motion over a dark launch background
-- Real UI stays mounted under the splash (opacity visible after dismiss) so MapKit, SwiftData, and navigation warm up during the intro instead of on the first History / destination tap
+- Real UI stays mounted under the splash (opacity visible after dismiss) so MapKit, SwiftData, and navigation warm up during the intro instead of on the first History / destination tap. The follow camera is aimed during that intro, so the dashboard is already on your location when the splash fades
 - App icon and splash assets live in `Assets.xcassets` (`AppIcon`, `AppLogo`, `SplashBackground`)
 
 ### Live Activities & Home Screen widgets
