@@ -75,7 +75,7 @@ enum RideRouteSparklinePath {
     }
 }
 
-private struct RideSparklineShape: Shape {
+private nonisolated struct RideSparklineShape: Shape {
     let points: [CGPoint]
 
     func path(in rect: CGRect) -> Path {

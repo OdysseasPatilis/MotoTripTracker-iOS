@@ -685,8 +685,8 @@ enum RiderPointing {
 }
 
 /// Wide end faces forward, tip sits on the rider. Same shape as the Maps heading cone.
-private struct HeadingBeam: Shape {
-    func path(in rect: CGRect) -> Path {
+private nonisolated struct HeadingBeam: Shape {
+    nonisolated func path(in rect: CGRect) -> Path {
         var path = Path()
         path.move(to: CGPoint(x: rect.midX, y: rect.maxY))
         path.addLine(to: CGPoint(x: rect.minX, y: rect.minY))
