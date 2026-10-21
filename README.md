@@ -106,7 +106,7 @@ The app is the iOS counterpart of the Android **MotoTripTracker** project, with 
 ### Full route map & replay
 - MapKit route polyline with a **continuous speed gradient** (teal → blue → coral; slower → faster) or elevation coloring
 - Segmented Speed / Elevation layers
-- Elevation or speed profile in the replay sheet, colored like the map. Elevation is height above the ride’s lowest point. A dot follows the replay along the curve
+- Elevation or speed profile in the replay sheet. Speed is a light-to-dark coral: slower stretches stay light, faster stretches go dark. The axes show distance and speed or climb. Elevation is height above the ride’s lowest point. A dot follows the replay along the curve
 - Waypoints (start/end, top speed, summit, stops, etc.) with reverse-geocoded labels where available; Full Route **re-runs analysis** if markers were missing after a background finalize
 - If stored route points fail to load, Full Route **falls back to the trip’s encoded polyline** so the map is not blank (replay detail may be limited)
 - **Route replay**: the route fills the screen. Play, pause, the scrubber, 1×–4×, and the live speed sit on a glass bar. The profile chart and waypoints pull up in a sheet. The map follows the rider, with the traveled route highlighted against what is left

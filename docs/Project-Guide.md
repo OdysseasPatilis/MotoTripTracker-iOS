@@ -509,7 +509,7 @@ Data is **local only** (no iCloud sync in this codebase yet).
 
 Leaderboard is **personal** (your rides only), not a global social board.
 
-Opening a summary shows the saved trip stats immediately. Route points, the map preview, and moments load after the push animation has started. The preview draws at most 240 points so the shape of the ride stays visible without plotting every fix. Peak rush still ignores a lone GPS spike; it only compares fixes a few seconds away. History day headings and row times reuse cached formatters.
+Opening a summary shows the saved trip stats immediately. Route points, the map preview, and moments load after the push animation has started. The preview draws at most 240 points so the shape of the ride stays visible without plotting every fix. Peak rush still ignores a lone GPS spike; it only compares fixes a few seconds away. History day headings and row times reuse cached formatters. The replay speed profile colors each stretch by its speed, light coral when slow and dark coral when fast, and both axes are labeled.
 
 ---
 
