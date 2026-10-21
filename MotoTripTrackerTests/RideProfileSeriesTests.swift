@@ -30,6 +30,21 @@ struct RideProfileSeriesTests {
         #expect(peak > 10 * 3.6)
     }
 
+    @Test func axisCeilingLandsOnARoundStep() {
+        #expect(RideProfileAxis.niceCeiling(0) == 1)
+        #expect(RideProfileAxis.niceCeiling(5) == 5)
+        #expect(RideProfileAxis.niceCeiling(23) == 50)
+        #expect(RideProfileAxis.niceCeiling(87) == 100)
+        #expect(RideProfileAxis.niceCeiling(100) == 100)
+    }
+
+    @Test func speedShadeRunsFromLightToDark() {
+        #expect(RideProfileAxis.speedShade(value: 0, minimum: 0, maximum: 80) == 0)
+        #expect(RideProfileAxis.speedShade(value: 40, minimum: 0, maximum: 80) == 0.5)
+        #expect(RideProfileAxis.speedShade(value: 80, minimum: 0, maximum: 80) == 1)
+        #expect(RideProfileAxis.speedShade(value: 30, minimum: 30, maximum: 30) == 0.5)
+    }
+
     @Test func playheadReadsTheValueAlongTheCurve() {
         let samples = [
             RideProfileSample(fraction: 0, value: 0),
